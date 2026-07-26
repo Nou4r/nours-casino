@@ -24,7 +24,9 @@
  *
  * Coordinates are CSS pixels; the backing store is scaled by devicePixelRatio.
  * Every length is derived from one scalar - the peg spacing `s` - so the board is
- * resolution independent and physics feels identical at any size.
+ * resolution independent and physics feels identical at any size. `s` is solved
+ * per layout from the live canvas box and the row count, which is what lets the
+ * same code fit a 16-row board into a 296px phone stage and a 1200x760 desktop.
  */
 
 import {
@@ -39,11 +41,21 @@ import * as T from './render/theme.js';
 const ROW_GAP_K = 0.82; // vertical distance between peg rows
 const DROP_UNITS = 1.65; // headroom above the first peg row
 const BUCKET_GAP_K = 1.2; // gap between the last peg row and the bucket tops
+// Headroom and the bucket gap are pure whitespace, so a stage with no vertical
+// room to spare (phone landscape, ~800x200) spends them down to these floors
+// before it shrinks the board itself. ROW_GAP_K is deliberately not spendable:
+// contact leaves a ball PEG_R_K + BALL_R_K clear of the peg it just struck, so a
+// row gap under that would put the next row inside the ball at the moment of
+// contact and let one bounce register against two rows.
+const DROP_MIN_K = 0.9;
+const BUCKET_GAP_MIN_K = 0.5;
+const SPAWN_DROP_K = 0.35; // >= BALL_R_K, so the orb never starts clipped by the top edge
 const PEG_R_K = 0.135;
 const BALL_R_K = 0.3; // 2*(PEG_R_K + BALL_R_K) < 1 so a ball clears any peg pair
+// An idle T.peg reaches r + 0.9r of shadow blur = 1.9 * PEG_R_K past its centre.
+// Rounded up; every pixel handed to this margin comes off the chip labels.
+const PEG_EDGE_K = 0.26;
 const BUCKET_H_K = 1.0;
-const BUCKET_H_MIN = 13;
-const BUCKET_H_MAX = 30;
 
 /* ── dynamics, in units of peg spacing per second ──────────────────────── */
 // Tuned so a full descent reads as a real Plinko drop: contact-to-contact is
@@ -132,6 +144,29 @@ function formatMultiplier(m) {
   return `${Math.round(m * 100) / 100}x`;
 }
 
+/** Shortest form that still reads as a payout: 1000 -> 1k, 0.2 -> .2. */
+function compactMultiplier(m) {
+  if (!Number.isFinite(m)) return '--';
+  if (m >= 1000) {
+    const k = m / 1000;
+    return `${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  }
+  const bare = formatMultiplier(m).slice(0, -1);
+  return bare.startsWith('0.') ? bare.slice(1) : bare;
+}
+
+/**
+ * Chip label formats, longest first. Sixteen rows on a 296px phone stage leaves
+ * each chip ~14px of width, which no four-character label survives; the row
+ * steps down a tier rather than shrinking type into decoration. The full value
+ * is always one hover away in the tooltip, which never abbreviates.
+ */
+const LABEL_TIERS = [
+  formatMultiplier, //                                              1000x  26x  0.2x
+  (m) => (Number.isFinite(m) ? formatMultiplier(m).slice(0, -1) : '--'), // 1000  26  0.2
+  compactMultiplier, //                                             1k     26   .2
+];
+
 /** Random 0/1 path of `rows` decisions whose sum is `targetIndex`. */
 function pathForTarget(rows, targetIndex, rand = Math.random) {
   const hits = clamp(Math.round(targetIndex), 0, rows);
@@ -201,7 +236,9 @@ export class PlinkoPhysics {
 
     this.layout = null;
     this.view = { w: 0, h: 0, dpr: 1 };
-    this.sprites = { peg: null, ball: null, pegSize: 0, ballSize: 0 };
+    this.sprites = { peg: null, ball: null, pegSize: 0, ballSize: 0, pegDrawR: 0 };
+    /** One font for every chip, solved per layout in `_solveChipLabels`. */
+    this.chipFont = '';
     this.probs = null;
     this.hoverIndex = -1;
     this._ramp = { logMin: 0, logSpan: 0 };
@@ -231,11 +268,15 @@ export class PlinkoPhysics {
     this._ballSeq = 0;
 
     this._onPointerMove = this._handlePointerMove.bind(this);
-    this._onPointerLeave = this._handlePointerLeave.bind(this);
+    this._onPointerEnd = this._handlePointerEnd.bind(this);
     this._frame = this._frame.bind(this);
 
     canvas.addEventListener('pointermove', this._onPointerMove, { passive: true });
-    canvas.addEventListener('pointerleave', this._onPointerLeave, { passive: true });
+    canvas.addEventListener('pointerleave', this._onPointerEnd, { passive: true });
+    // Touch never fires pointerleave, so without these a tapped chip stays lit
+    // and holds its tooltip open until some later mouse-style hover clears it.
+    canvas.addEventListener('pointerup', this._onPointerEnd, { passive: true });
+    canvas.addEventListener('pointercancel', this._onPointerEnd, { passive: true });
 
     // Canvas loops are invisible to the CSS reduced-motion rules, so the stage
     // twinkle has to opt out here; a baked, static backdrop stands in for it.
@@ -437,7 +478,9 @@ export class PlinkoPhysics {
     if (this._observer) this._observer.disconnect();
     this._observer = null;
     this.canvas.removeEventListener('pointermove', this._onPointerMove);
-    this.canvas.removeEventListener('pointerleave', this._onPointerLeave);
+    this.canvas.removeEventListener('pointerleave', this._onPointerEnd);
+    this.canvas.removeEventListener('pointerup', this._onPointerEnd);
+    this.canvas.removeEventListener('pointercancel', this._onPointerEnd);
     if (this._motionQuery) {
       this._motionQuery.removeEventListener?.('change', this._onMotionChange);
       this._motionQuery = null;
@@ -449,7 +492,7 @@ export class PlinkoPhysics {
     this.pegs.length = 0;
     this.buckets.length = 0;
     this.backdropCanvas = null;
-    this.sprites = { peg: null, ball: null, pegSize: 0, ballSize: 0 };
+    this.sprites = { peg: null, ball: null, pegSize: 0, ballSize: 0, pegDrawR: 0 };
   }
 
   /* ── multipliers ─────────────────────────────────────────────────────── */
@@ -497,6 +540,11 @@ export class PlinkoPhysics {
    * net of any parent border or padding. Measuring that keeps the board centred
    * to the sub-pixel; `clientWidth` on the parent rounds and would bias it. The
    * parent's content box is the fallback for when the canvas has no box yet.
+   *
+   * An unmounted `#view-*` pane is `display:none` and measures 0 on both boxes.
+   * That is reported honestly as `{0, 0}` - never as a default size - because a
+   * guessed width would size the canvas past its host and then feed that width
+   * back as the host's own max-content size. `_layout` treats 0 as "not laid out".
    */
   _measure() {
     const rect = this.canvas.getBoundingClientRect();
@@ -514,12 +562,17 @@ export class PlinkoPhysics {
    * Solves the single scalar the whole board hangs off: peg spacing `s`.
    * Width and height each imply a maximum spacing; the smaller wins and the
    * resulting board box is centred, which letterboxes or pillarboxes the board
-   * without ever stretching it, at any container aspect ratio.
+   * without ever stretching it, at any container aspect ratio. Nothing here has
+   * a pixel floor that could exceed the measured box: the board is only ever
+   * clamped down to its host, never up off it.
    */
   _layout(force) {
     const { w, h } = this._measure();
     const dpr = clamp(window.devicePixelRatio || 1, 1, MAX_DPR);
-    if (w < 8 || h < 8) return; // container not laid out yet; retry on next resize
+    // Hidden pane, or a host with no box yet: keep the last good layout and wait.
+    // The ResizeObserver on the host fires again the moment it gains a size, and
+    // `app.enterGame()` re-resizes inside a rAF after the route flip.
+    if (!(w >= 8) || !(h >= 8)) return;
 
     if (!force && this.layout && this.view.w === w && this.view.h === h && this.view.dpr === dpr) {
       return;
@@ -535,33 +588,60 @@ export class PlinkoPhysics {
     this.view = { w, h, dpr };
 
     const rows = this.rows;
-    const padX = Math.min(w * 0.04, 26);
-    const padY = Math.min(h * 0.045, 22);
-    const availW = Math.max(32, w - padX * 2);
-    const availH = Math.max(32, h - padY * 2);
+    const short = Math.min(w, h);
+    // Inner margin is a fraction of the box, never a fixed slab: on a 296px phone
+    // stage a 26px pad costs 18% of the width, and that comes straight off every
+    // chip. The *0.12 ceilings keep the pad from swallowing a degenerate box.
+    const padX = Math.min(w * 0.12, clamp(w * 0.02, 4, 22));
+    // Vertical is not squeezed the same way: T.chip drops a 6px blur at a 3px
+    // offset below the bucket row, so anything under ~9px clips the chip shadow
+    // off the bottom edge on a short stage.
+    const padY = Math.min(h * 0.12, clamp(h * 0.045, 9, 22));
+    const availW = Math.max(1, w - padX * 2);
+    const availH = Math.max(1, h - padY * 2);
 
-    // Peg span is (rows + 1) * s; the spare unit is half a bucket of margin on
-    // each side so the outermost chips never touch the container edge. Width
-    // gives the first estimate of `s`, then the loop shrinks it until the whole
-    // stack fits the height. It iterates because bucket height is clamped, so
-    // it is not proportional to `s` at the extremes and one division overshoots.
-    let s = availW / (rows + 2);
-    let bucketH = 0;
-    for (let i = 0; i < 8; i++) {
-      bucketH = clamp(s * BUCKET_H_K, BUCKET_H_MIN, BUCKET_H_MAX);
-      const need = s * DROP_UNITS + (rows - 1) * s * ROW_GAP_K + s * BUCKET_GAP_K + bucketH;
+    // Bottom row peg centres span (rows + 1) * s; PEG_EDGE_K on each side is the
+    // drop shadow T.peg bleeds past them, so the pyramid is inside the box at any
+    // row count. Chip height follows peg spacing, bounded by the short side of
+    // the canvas so a 1200x760 board does not grow square chips and an 800x200
+    // one does not crush them under their own label.
+    const spanK = rows + 1 + PEG_EDGE_K * 2;
+    const rowSpanK = (rows - 1) * ROW_GAP_K;
+    const bucketLo = clamp(short * 0.04, 10, 15);
+    const bucketHi = clamp(short * 0.075, 16, 34);
+
+    // Width gives the first estimate of `s`, then the loop fits the stack into
+    // the height: whitespace is spent first (see DROP_MIN_K), and only a stage
+    // still too short after that shrinks the board. It iterates because bucket
+    // height is clamped, so it is not proportional to `s` at the extremes and
+    // one division overshoots.
+    let s = availW / spanK;
+    let drop = DROP_UNITS;
+    let bGap = BUCKET_GAP_K;
+    let bucketH = clamp(s * BUCKET_H_K, bucketLo, bucketHi);
+    for (let i = 0; i < 10; i++) {
+      bucketH = clamp(s * BUCKET_H_K, bucketLo, bucketHi);
+      const need = (drop + rowSpanK + bGap) * s + bucketH;
       if (need <= availH) break;
-      s *= (availH / need) * 0.9995;
+      const slack = (drop - DROP_MIN_K + (bGap - BUCKET_GAP_MIN_K)) * s;
+      if (slack > 0.01) {
+        const k = Math.min(1, (need - availH) / slack);
+        drop -= (drop - DROP_MIN_K) * k;
+        bGap -= (bGap - BUCKET_GAP_MIN_K) * k;
+        if (k < 1) break; // whitespace alone absorbed the overflow
+      } else {
+        s *= (availH / need) * 0.999; // nudge under: `need` has a constant term
+      }
     }
 
     const rowGap = s * ROW_GAP_K;
-    const boardW = (rows + 2) * s;
-    const boardH = s * DROP_UNITS + (rows - 1) * rowGap + s * BUCKET_GAP_K + bucketH;
+    const boardW = spanK * s;
+    const boardH = (drop + rowSpanK + bGap) * s + bucketH;
     const originX = (w - boardW) / 2;
     const originY = Math.max(padY * 0.4, (h - boardH) / 2);
     const centerX = originX + boardW / 2;
-    const topY = originY + s * DROP_UNITS;
-    const bucketTop = topY + (rows - 1) * rowGap + s * BUCKET_GAP_K;
+    const topY = originY + s * drop;
+    const bucketTop = topY + (rows - 1) * rowGap + s * bGap;
 
     this.layout = {
       s,
@@ -574,13 +654,20 @@ export class PlinkoPhysics {
       topY,
       bucketTop,
       bucketH,
-      pegR: Math.max(1.4, s * PEG_R_K),
-      ballR: Math.max(2.6, s * BALL_R_K),
+      // Both radii stay strictly proportional to `s`. They are simulation inputs,
+      // not decoration: the contact test assumes 2*(PEG_R_K + BALL_R_K) sits under
+      // one row gap, so a pixel floor on either would let a ball register against
+      // two rows at once and land somewhere its provably fair path never chose.
+      // Sub-pixel pegs are a drawing problem, handled in `_buildSprites`.
+      pegR: s * PEG_R_K,
+      ballR: s * BALL_R_K,
       gravity: GRAVITY_K * s,
       vMax: VMAX_K * s,
       lateralMax: LATERAL_MAX_K * s,
       hopCap: Math.sqrt(2 * (GRAVITY_K * s) * (rowGap * HOP_APEX_K)),
-      spawnY: originY + s * 0.35,
+      // Fixed at SPAWN_DROP_K however much headroom the fit left, because it has
+      // to clear one ball radius or the orb starts half off the top edge.
+      spawnY: originY + s * SPAWN_DROP_K,
     };
 
     this._buildPegs();
@@ -630,8 +717,12 @@ export class PlinkoPhysics {
   _buildBuckets() {
     const L = this.layout;
     const count = this.rows + 1;
-    const gap = Math.max(1.5, L.s * 0.1);
-    const chipW = Math.max(4, L.s - gap);
+    // Chip pitch is fixed at one peg spacing, so the gutter is the only slack
+    // there is: capped at 4px, because past that a wide board is spending pixels
+    // on empty gaps that the label needs. Index -> position only; the index a
+    // bucket carries is its outcome identity and is never renumbered here.
+    const gap = clamp(L.s * 0.09, 0.8, 4);
+    const chipW = Math.max(2, L.s - gap);
     const maxMult = this._maxMult;
     const buckets = [];
     for (let i = 0; i < count; i++) {
@@ -645,11 +736,54 @@ export class PlinkoPhysics {
         color,
         rgb: hexRgb(color),
         jackpot: m >= 100,
+        label: '',
         pulse: 0,
         hover: 0,
       });
     }
     this.buckets = buckets;
+    this._solveChipLabels(chipW, L.bucketH);
+  }
+
+  /**
+   * One font size and one label format for the whole row. Seventeen chips at
+   * seventeen different sizes reads as a rendering fault, which is what
+   * per-chip shrink-to-fit produces on a 16-row board.
+   *
+   * The wanted size comes off chip height; if the WIDEST label will not fit that,
+   * the row steps down a format tier (`1000x` -> `1000` -> `1k`) and only shrinks
+   * type once the shortest tier still overflows - so a label is never clipped and
+   * never silently truncated. Solved once per layout: `measureText` across every
+   * chip and tier is cheap here and would not be in `_draw`.
+   */
+  _solveChipLabels(chipW, chipH) {
+    const ctx = this.ctx;
+    const want = clamp(chipH * 0.56, 6, 22);
+    // Under this a label is decoration rather than information, so trade format
+    // for size. Tracks chip height, since that is what caps `want` in the first place.
+    const floor = Math.min(want, clamp(chipH * 0.36, 7.5, 12.5));
+    const maxW = chipW * 0.92; // the pill's corner radius eats the rest
+
+    ctx.save();
+    ctx.font = `800 ${want}px ${FONT}`;
+    let labels = [];
+    let px = want;
+    for (let t = 0; t < LABEL_TIERS.length; t++) {
+      const fmt = LABEL_TIERS[t];
+      labels = this.buckets.map((b) => fmt(b.multiplier));
+      let widest = 0;
+      for (const text of labels) {
+        const tw = ctx.measureText(text).width;
+        if (tw > widest) widest = tw;
+      }
+      // Font metrics scale linearly, so one measurement gives the fitted size.
+      px = widest > maxW ? (want * maxW) / widest : want;
+      if (px >= floor) break;
+    }
+    ctx.restore();
+
+    for (let i = 0; i < this.buckets.length; i++) this.buckets[i].label = labels[i] ?? '';
+    this.chipFont = `800 ${px.toFixed(2)}px ${FONT}`;
   }
 
   /* ── sprites ─────────────────────────────────────────────────────────── */
@@ -673,16 +807,23 @@ export class PlinkoPhysics {
    */
   _buildSprites() {
     const L = this.layout;
+    // The peg's DRAWN radius gets a one-pixel floor so a hostile stage cannot
+    // render the pyramid as invisible specks. It is deliberately separate from
+    // `L.pegR`, which the contact test uses and which must stay proportional.
+    // The ball gets no such floor: drawing it wider than it collides is exactly
+    // the overlap-two-pegs artefact the proportional radii exist to prevent.
+    const pegDrawR = Math.max(1, L.pegR);
     // Sized for the widest thing each primitive paints: T.peg bleeds ~2.2r
     // through its drop shadow, T.glowOrb ~3.4r through halo plus bloom.
-    const pegSize = L.pegR * 6;
+    const pegSize = pegDrawR * 6;
     const ballSize = L.ballR * 8;
 
     this.sprites = {
       pegSize,
       ballSize,
+      pegDrawR,
       peg: this._makeSprite(pegSize, (g, size) => {
-        T.peg(g, size / 2, size / 2, L.pegR, 0, PEG_FLASH);
+        T.peg(g, size / 2, size / 2, pegDrawR, 0, PEG_FLASH);
       }),
       ball: this._makeSprite(ballSize, (g, size) => {
         T.glowOrb(g, size / 2, size / 2, L.ballR, BALL_COLOR);
@@ -1081,8 +1222,13 @@ export class PlinkoPhysics {
       });
     }
 
+    // Popup size follows peg spacing but is bounded by the stage: a 296px board
+    // must not get a hero label wider than the board itself, and the 10px floor
+    // keeps it readable when 16 rows squeeze `s` down.
+    const popSize = clamp(L.s * (big ? 0.78 : 0.6), 10, Math.min(this.view.w, this.view.h) * 0.16);
     this.popups.push({
-      x,
+      // The widest label is five characters, ~1.6 em-widths either side of centre.
+      x: clamp(x, popSize * 1.6, Math.max(popSize * 1.6, this.view.w - popSize * 1.6)),
       // Clear of the chip row: the hero glow bleeds ~0.9x its size and would
       // otherwise wash out the label on the chip it just announced.
       y: y - L.s * 0.55,
@@ -1090,7 +1236,7 @@ export class PlinkoPhysics {
       life: 1,
       decay: 1.15,
       color: bucket.color,
-      size: Math.max(10, L.s * (big ? 0.78 : 0.6)),
+      size: popSize,
     });
   }
 
@@ -1151,7 +1297,11 @@ export class PlinkoPhysics {
     const x = ((event.clientX - rect.left) / rect.width) * this.view.w;
     const y = ((event.clientY - rect.top) / rect.height) * this.view.h;
 
-    const slack = L.bucketH * 0.9;
+    // A 16-row chip is ~14px tall on a phone; a fingertip is not. Widen the band
+    // to a peg spacing so a tap near the row still resolves to a chip. Only the
+    // hit BAND grows - `idx` is the exact inverse of `_bucketX`, so the index a
+    // point maps to is unchanged and stays the bucket's outcome identity.
+    const slack = Math.max(L.bucketH * 0.9, L.s * 1.2);
     let next = -1;
     if (y >= L.bucketTop - slack && y <= L.bucketTop + L.bucketH + slack) {
       const idx = Math.round((x - L.centerX) / L.s + this.rows / 2);
@@ -1164,8 +1314,15 @@ export class PlinkoPhysics {
     this.start();
   }
 
-  _handlePointerLeave() {
+  /** pointerleave / pointerup / pointercancel all end a hover. */
+  _handlePointerEnd(event) {
+    // A mouse is still hovering after it clicks, so only a lifted touch or pen
+    // ends the hover on pointerup; pointerleave and pointercancel always do.
+    if (event && event.type === 'pointerup' && event.pointerType === 'mouse') return;
+    if (this.hoverIndex === -1) return;
     this.hoverIndex = -1;
+    // A tap can arrive on an idle-stopped board, and the fade-out needs a loop.
+    this.start();
   }
 
   /* ── rendering ───────────────────────────────────────────────────────── */
@@ -1270,7 +1427,7 @@ export class PlinkoPhysics {
     const ctx = this.ctx;
     const sp = this.sprites;
     if (!sp.peg) return;
-    const r = this.layout.pegR;
+    const r = sp.pegDrawR; // must match the baked sprite it cross-fades over
     const size = sp.pegSize;
     const half = size / 2;
 
@@ -1339,8 +1496,11 @@ export class PlinkoPhysics {
     const ctx = this.ctx;
     const L = this.layout;
     const h = L.bucketH;
-    const radius = Math.min(h * 0.42, 8);
-    const baseFont = Math.max(7, L.s * 0.36);
+    // Corner radius follows the chip instead of a fixed 8px: at 16 rows on a
+    // phone the chip is ~14px wide, and an 8px radius turns the pill into a
+    // lozenge with no flat edge left to sit the label on.
+    const radius = Math.min(h * 0.42, Math.max(2.5, L.s * 0.2));
+    const font = this.chipFont;
 
     for (const b of this.buckets) {
       // Landing punch: the chip snaps to full lift on contact and eases back over
@@ -1351,20 +1511,9 @@ export class PlinkoPhysics {
       const x = b.cx - w / 2;
       const y = L.bucketTop - pop * h * 0.42 - b.hover * L.s * 0.14;
 
-      // Long labels ("1000x") get shrunk to fit rather than spilling the chip.
-      const label = formatMultiplier(b.multiplier);
-      ctx.font = `800 ${baseFont}px ${FONT}`;
-      const measured = ctx.measureText(label).width;
-      const maxW = w * 0.84;
-      const px = measured > maxW ? Math.max(6, (baseFont * maxW) / measured) : baseFont;
-
-      T.chip(ctx, x, y, w, h, {
-        color: b.color,
-        label,
-        radius,
-        lift,
-        font: `800 ${px}px ${FONT}`,
-      });
+      // Label and font were fitted to `b.w` in `_solveChipLabels`; `w` only ever
+      // grows from there, so neither can spill.
+      T.chip(ctx, x, y, w, h, { color: b.color, label: b.label, radius, lift, font });
     }
   }
 
@@ -1419,18 +1568,30 @@ export class PlinkoPhysics {
     const line = prob == null ? formatMultiplier(b.multiplier)
       : `${formatMultiplier(b.multiplier)}  ·  ${prob < 0.01 ? '<0.01' : prob.toFixed(2)}%`;
 
-    const fs = Math.max(9, Math.min(12, L.s * 0.42));
+    // The readout is an overlay, not a grid cell, so it is sized off the canvas
+    // rather than off `s`: at 16 rows the chip is too small to size anything by,
+    // and this is the one place the unabbreviated multiplier has to be legible.
+    const view = this.view;
+    let fs = clamp(Math.min(view.w, view.h) * 0.032, 9, 18);
     // Must match T.caption's font so the measured width frames the text exactly.
     ctx.font = `700 ${fs}px Inter, sans-serif`;
-    const padX = fs * 0.85;
-    const w = ctx.measureText(line).width + padX * 2;
+    let w = ctx.measureText(line).width + fs * 1.7; // 0.85em of padding per side
+    const room = view.w - 8;
+    if (w > room) {
+      // A narrow stage shrinks the readout rather than running it off the edge.
+      fs *= room / w;
+      ctx.font = `700 ${fs}px Inter, sans-serif`;
+      w = ctx.measureText(line).width + fs * 1.7;
+    }
     const h = fs * 2.1;
-    const x = clamp(b.cx - w / 2, 4, this.view.w - w - 4);
-    const y = L.bucketTop - h - L.s * 0.5;
+    const x = clamp(b.cx - w / 2, 4, Math.max(4, view.w - w - 4));
+    // Short stages leave less than a tooltip above the chips; clip nothing.
+    const y = Math.max(2, L.bucketTop - h - L.s * 0.5);
+    const radius = Math.min(7, h * 0.3);
 
     ctx.save();
     ctx.globalAlpha = b.hover;
-    T.panel(ctx, x, y, w, h, { radius: 7, accent: b.color });
+    T.panel(ctx, x, y, w, h, { radius, accent: b.color });
     T.caption(ctx, line, x + w / 2, y + h / 2 + 0.5, {
       size: fs,
       color: T.PALETTE.text,

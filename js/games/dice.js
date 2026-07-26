@@ -26,6 +26,12 @@ const PIN_LIFE_MS = 2600;
 /** How many past rolls stay pinned to the track as spread history. */
 const PIN_HISTORY = 8;
 
+/**
+ * Peak scale of the hero readout's landing pop. Shared so layout() reserves exactly the
+ * headroom drawHero() can consume — otherwise the enlarged number lands on the caption.
+ */
+const HERO_POP = 1.16;
+
 /** Clamp helper. */
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
@@ -75,6 +81,26 @@ function numText(ctx, text, x, y, opts = {}) {
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
   ctx.restore();
+}
+
+/**
+ * Shrink `size` until `text` fits `maxW`. One measure, no loop — the stage has to stay
+ * readable from a 296px phone pane up, and a clipped readout is worse than a small one.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} size Preferred font size in CSS px.
+ * @param {number} maxW Width budget in CSS px.
+ * @param {string} family
+ * @param {number} weight
+ * @returns {number}
+ */
+function fitSize(ctx, text, size, maxW, family, weight) {
+  ctx.save();
+  ctx.font = `${weight} ${size}px ${family}`;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w > maxW && w > 0 ? Math.max(6, size * (maxW / w)) : size;
 }
 
 /**
@@ -169,10 +195,12 @@ export class DiceGame {
     this.width = 0;
     this.height = 0;
 
-    // Render caches — gradients are rebuilt only when their geometry changes.
+    // Render caches — gradients and the solved layout are rebuilt only on resize().
     this._zoneKey = '';
     this._zoneGrad = null;
     this._knobGrad = null;
+    this._m = null;        // solved stage layout, see layout()
+    this._vfxScale = 1;    // particle/gravity scale, tracks the stage size
     this._settleAt = 0;
     this._dirty = true;
     this._resizeObserver = null;
@@ -439,22 +467,26 @@ export class DiceGame {
   }
 
   initUI() {
-    if (!this.container || typeof document === 'undefined') return;
+    if (typeof document === 'undefined') return;
 
-    // Purge any control panel a previous build injected into the stage. All dice controls
-    // live in the sidebar pane; a second copy on the stage is pure visual noise.
-    const legacy = this.container.querySelector('.dice-controls');
-    if (legacy) legacy.remove();
+    if (this.container) {
+      // Purge any control panel a previous build injected into the stage. All dice controls
+      // live in the sidebar pane; a second copy on the stage is pure visual noise.
+      const legacy = this.container.querySelector('.dice-controls');
+      if (legacy) legacy.remove();
 
-    // The stage container is an unstyled div in the markup; give it a positioned, filling
-    // box so the canvas can be measured reliably (inline only — no stylesheet edits).
-    const cs = this.container.style;
-    cs.position = 'relative';
-    cs.display = 'block';
-    cs.width = '100%';
-    cs.height = '100%';
+      // The stage container is an unstyled div in the markup; give it a positioned, filling
+      // box so the canvas can be measured reliably (inline only — no stylesheet edits).
+      const cs = this.container.style;
+      cs.position = 'relative';
+      cs.display = 'block';
+      cs.width = '100%';
+      cs.height = '100%';
+    }
 
     if (this.canvas) {
+      // Absolute fill: the canvas is out of flow, so it can never feed a stale width back
+      // as the host's max-content size the way an in-flow canvas can.
       const ks = this.canvas.style;
       ks.position = 'absolute';
       ks.left = '0';
@@ -466,9 +498,12 @@ export class DiceGame {
 
     this.resize();
 
-    if (typeof ResizeObserver !== 'undefined') {
+    // Observe exactly what resize() measures, so a container-less mount (a bare canvas
+    // handed to the constructor) still tracks its host and not just window resizes.
+    const host = this.container || (this.canvas ? this.canvas.parentElement : null);
+    if (host && typeof ResizeObserver !== 'undefined') {
       this._resizeObserver = new ResizeObserver(() => this.resize());
-      this._resizeObserver.observe(this.container);
+      this._resizeObserver.observe(host);
     }
     if (typeof window !== 'undefined') {
       this._onWindowResize = () => this.resize();
@@ -477,8 +512,8 @@ export class DiceGame {
   }
 
   /**
-   * Re-measure the stage and re-scale the backing store for the current DPR.
-   * Safe to call at any time; a no-op when the size is unchanged.
+   * Re-measure the stage, re-scale the backing store for the current DPR and re-solve the
+   * layout. Safe to call at any time; a no-op when the size is unchanged.
    * @returns {DiceGame}
    */
   resize() {
@@ -490,26 +525,36 @@ export class DiceGame {
     const rect = host ? host.getBoundingClientRect() : null;
     const w = rect ? rect.width : 0;
     const h = rect ? rect.height : 0;
-    if (w < 2 || h < 2) {
-      this.width = 0;
-      this.height = 0;
-      return this;
-    }
+
+    // A hidden `#view-*` pane measures 0. Keep the last good size instead of resizing to
+    // anything — both the ResizeObserver and enterGame()'s rAF resize fire again once the
+    // pane is visible, and writing a bogus size here would paint the stage at the wrong
+    // scale on the frame after it appears.
+    if (!(w > 1) || !(h > 1)) return this;
 
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
     const bw = Math.round(w * dpr);
     const bh = Math.round(h * dpr);
 
-    if (canvas.width !== bw || canvas.height !== bh) {
+    const storeChanged = canvas.width !== bw || canvas.height !== bh;
+    if (storeChanged) {
       canvas.width = bw;
       canvas.height = bh;
       // Setting width/height resets the transform, so re-apply the DPR scale.
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this._zoneKey = '';
     }
 
-    this.width = w;
-    this.height = h;
+    if (storeChanged || this.width !== w || this.height !== h) {
+      this.width = w;
+      this.height = h;
+      // Every size-derived cache dies with the layout: the rail gradients are built at the
+      // live rail height and the knob bezel at the live knob radius.
+      this._zoneKey = '';
+      this._knobGrad = null;
+      this._vfxScale = clamp(Math.min(w, h) / 620, 0.45, 1.15);
+      this.layout();
+    }
+
     this._dirty = true;
     return this;
   }
@@ -536,19 +581,149 @@ export class DiceGame {
   /* Stage Geometry                                                             */
   /* -------------------------------------------------------------------------- */
 
+  /**
+   * Solve the whole stage layout for the current canvas size.
+   *
+   * Called from resize() only — per AGENTS §5 cached geometry is derived on size change,
+   * never per frame. Every dimension the stage paints with is produced here, because the
+   * same module has to read as a casino board at 296x296 (phone portrait pane),
+   * 800x200 (phone landscape) and 1200x760 (desktop).
+   *
+   * @returns {object|null} Metrics, or null while the stage has no measurable size.
+   */
+  layout() {
+    const w = this.width;
+    const h = this.height;
+    if (w < 2 || h < 2) { this._m = null; return null; }
+
+    // Chrome scale. Reference stage is 900x620; tracking the tighter axis means a short
+    // landscape strip shrinks the stacked chrome rather than only the type. 0.5 is the
+    // legibility floor — both 296x296 and 800x200 bottom out there.
+    const s = clamp(Math.min(w / 900, h / 620), 0.5, 1.2);
+
+    // Touch sizing. The knob is the rail's grab affordance, so it holds >= 32 CSS px of
+    // stage even at 296 where proportional scaling would hand it 13.
+    const knobR = clamp(Math.min(w, h) * 0.045, 16, 21);
+    const railH = clamp(Math.min(w, h) * 0.05, 15, 26);
+
+    // Side padding must clear half a knob plus the "0"/"100" tick labels at the ends.
+    const pad = clamp(w * 0.075, knobR + 8, 96);
+    const trackW = Math.max(40, w - pad * 2);
+
+    /* --- rail band, measured out from the rail centre --- */
+    const bubbleH = clamp(40 * s, 25, 44);
+    const bubbleW = clamp(92 * s, 62, 100);
+    const bubbleTail = clamp(12 * s, 7, 14);
+    // The settled chevron lives between the knob and the bubble tail, so the gap has to
+    // be tall enough to hold it — otherwise the two collide when roll lands on target.
+    const chevH = Math.max(8, knobR * 0.55);
+    const chevPad = Math.max(2, 3 * s);
+    const bubbleGap = chevPad + chevH + Math.max(3, 4 * s);
+    // Ticks clear the knob, not the rail: the knob always overhangs a touch-thin rail.
+    const tickTop = Math.max(railH / 2 + Math.max(3, 5 * s), knobR + 3);
+    const tickLen = Math.max(4, 7 * s);
+    const tickFont = clamp(11 * s, 8.5, 12);
+    const belowRail = tickTop + tickLen + Math.max(3, 4 * s) + tickFont;
+
+    /* --- block costs --- */
+    const marginTop = clamp(14 * s, 8, 18);
+    const marginBottom = clamp(20 * s, 10, 26);
+    const gap = clamp(14 * s, 6, 18);
+    const subGap = clamp(9 * s, 5, 10);
+    const subFont = clamp(13 * s, 9.5, 14);
+    const subBlock = subGap + subFont;
+    const cardsH = clamp(54 * s, 40, 60);
+    const stripH = clamp(32 * s, 28, 36);
+    const pinsH = clamp(16 * s, 10, 18);
+    const pinGap = clamp(8 * s, 4, 9);
+    const pinCapFont = clamp(9.5 * s, 8, 10);
+    const pinBand = pinGap + pinsH + Math.max(3, 4 * s) + pinCapFont;
+
+    // Hero is bounded by the track it sits over (5 mono glyphs ~= 3em) and by height, then
+    // by HERO_POP so the landing overshoot has reserved headroom.
+    const POP = HERO_POP;
+    const heroMax = clamp(Math.min(trackW / 3.1, h * 0.22), 20, 92);
+    const heroWant = Math.min(clamp(46 * s, 34, 92), heroMax);
+
+    // Spend the vertical budget: the rail band is fixed cost, the hero absorbs the slack,
+    // and the extras are shed in priority order until the readout is comfortable again.
+    let statsMode = 'cards';
+    let pins = true;
+    let bubble = true;
+    const extras = () =>
+      (pins ? pinBand : 0) +
+      (statsMode === 'cards' ? gap + cardsH : statsMode === 'strip' ? gap + stripH : 0);
+    const heroRoom = () =>
+      h - marginTop - marginBottom - subBlock - gap - belowRail - knobR - bubbleGap -
+      (bubble ? bubbleH + bubbleTail : 0) - extras();
+
+    if (heroRoom() / POP < heroWant) pins = false;
+    if (heroRoom() / POP < heroWant) statsMode = 'strip';
+    // The bubble sheds before the stat readout does: it only repeats the target the
+    // sub-caption already spells out, while the strip carries chance/multiplier/profit.
+    if (heroRoom() / POP < heroWant) bubble = false;
+    if (heroRoom() / POP < heroWant) statsMode = 'none';
+
+    // bubbleGap stays reserved even with the bubble hidden — it is the settled chevron's
+    // slot, and without it the chevron would collide with the sub-caption above.
+    const aboveRail = (bubble ? bubbleH + bubbleTail : 0) + bubbleGap + knobR;
+    const heroSize = clamp(heroRoom() / POP, 14, heroMax);
+    const heroBox = heroSize * POP;
+    const statsH = statsMode === 'cards' ? cardsH : statsMode === 'strip' ? stripH : 0;
+    const statsY = statsH ? h - marginBottom - statsH : 0;
+
+    const groupH = heroBox + subBlock + gap + aboveRail + belowRail + (pins ? pinBand : 0);
+    const availTop = (statsH ? statsY - gap : h - marginBottom) - marginTop;
+    // Bias leftover space upward so the rail keeps sitting near the optical centre.
+    const y0 = marginTop + Math.max(0, (availTop - groupH) * 0.45);
+    const railCY = y0 + heroBox + subBlock + gap + aboveRail;
+
+    const m = {
+      w, h, s,
+      pad, trackW, railH, knobR,
+      railCY,
+      railTop: railCY - railH / 2,
+      heroSize,
+      heroY: y0 + heroBox / 2,
+      subFont,
+      subY: y0 + heroBox + subGap + subFont / 2,
+      bubble, bubbleW, bubbleH, bubbleTail,
+      bubbleY: railCY - aboveRail,
+      chevH, chevPad,
+      tickTop, tickLen, tickFont,
+      tickLabelY: railCY + belowRail - tickFont / 2,
+      pins, pinsH, pinCapFont,
+      pinY: railCY + belowRail + pinGap,
+      statsMode, statsH, statsY,
+      statsGap: clamp(12 * s, 5, 14),
+      markerBar: Math.max(2.5, railH * 0.16),
+      markerOrb: Math.max(5, railH * 0.34),
+    };
+    this._m = m;
+    return m;
+  }
+
+  /** Solved layout for the live size; rebuilt lazily if resize() has not landed yet. */
+  metrics() {
+    return this._m || this.layout();
+  }
+
   /** Horizontal padding around the track. */
   trackPad() {
-    return clamp(this.width * 0.075, 44, 96);
+    const m = this.metrics();
+    return m ? m.pad : 0;
   }
 
   /** Usable track width in CSS pixels. */
   trackWidth() {
-    return Math.max(40, this.width - this.trackPad() * 2);
+    const m = this.metrics();
+    return m ? m.trackW : 0;
   }
 
   /** Vertical centre of the track. */
   trackY() {
-    return Math.round(Math.min(this.height * 0.60, this.height - 190));
+    const m = this.metrics();
+    return m ? m.railCY : this.height / 2;
   }
 
   /**
@@ -557,7 +732,9 @@ export class DiceGame {
    * @returns {number}
    */
   trackX(v) {
-    return this.trackPad() + (clamp(Number(v) || 0, 0, 100) / 100) * this.trackWidth();
+    const m = this.metrics();
+    if (!m) return this.width / 2;
+    return m.pad + (clamp(Number(v) || 0, 0, 100) / 100) * m.trackW;
   }
 
   /* -------------------------------------------------------------------------- */
@@ -621,7 +798,7 @@ export class DiceGame {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.15; // gravity
+      p.vy += 0.15 * this._vfxScale; // gravity, in stage-relative px
       p.life -= 0.02;
       if (p.life <= 0) {
         this.particles.splice(i, 1);
@@ -665,15 +842,17 @@ export class DiceGame {
 
   /**
    * Rounded rail with the win/lose split at the target, an inset shadow well and
-   * quarter ticks.
+   * quarter ticks. Every dimension comes off the solved layout.
    */
   drawTrack() {
+    const m = this.metrics();
+    if (!m) return;
+
     const ctx = this.ctx;
-    const pad = this.trackPad();
-    const tw = this.trackWidth();
-    const cy = this.trackY();
-    const th = 22;
-    const ty = cy - th / 2;
+    const pad = m.pad;
+    const tw = m.trackW;
+    const th = m.railH;
+    const ty = m.railTop;
     const r = th / 2;
 
     const loseFirst = this.condition === 'over';
@@ -721,48 +900,51 @@ export class DiceGame {
 
     // Soft inner shadow, stroked from inside the clip so only the inner edge survives.
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    ctx.lineWidth = 7;
+    ctx.lineWidth = Math.max(3, th * 0.32);
     ctx.shadowColor = 'rgba(0,0,0,0.85)';
-    ctx.shadowBlur = 9;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowBlur = Math.max(4, th * 0.41);
+    ctx.shadowOffsetY = Math.max(1.5, th * 0.14);
     T.roundRect(ctx, pad, ty, tw, th, r);
     ctx.stroke();
     ctx.restore();
 
     // Rim
+    const rim = Math.max(1, th * 0.068);
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-    ctx.lineWidth = 1.5;
-    T.roundRect(ctx, pad + 0.75, ty + 0.75, tw - 1.5, th - 1.5, r);
+    ctx.lineWidth = rim;
+    T.roundRect(ctx, pad + rim / 2, ty + rim / 2, tw - rim, th - rim, r);
     ctx.stroke();
     ctx.restore();
 
     // Split divider
+    const dw = Math.max(2, th * 0.14);
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = Math.max(3, th * 0.27);
     ctx.fillStyle = 'rgba(8,13,21,0.9)';
-    ctx.fillRect(tx - 1.5, ty, 3, th);
+    ctx.fillRect(tx - dw / 2, ty, dw, th);
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(tx - 0.5, ty, 1, th);
+    ctx.fillRect(tx - 0.5, ty, Math.max(1, th * 0.045), th);
     ctx.restore();
 
     // Quarter ticks + labels
+    const tickY = m.railCY + m.tickTop;
     ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = Math.max(1, 1.5 * m.s);
     ctx.beginPath();
     for (let i = 0; i < TICKS.length; i++) {
       const x = Math.round(this.trackX(TICKS[i])) + 0.5;
-      ctx.moveTo(x, ty + th + 5);
-      ctx.lineTo(x, ty + th + 12);
+      ctx.moveTo(x, tickY);
+      ctx.lineTo(x, tickY + m.tickLen);
     }
     ctx.stroke();
     ctx.restore();
 
     for (let i = 0; i < TICKS.length; i++) {
-      T.caption(ctx, String(TICKS[i]), this.trackX(TICKS[i]), ty + th + 23, {
-        size: 10,
+      T.caption(ctx, String(TICKS[i]), this.trackX(TICKS[i]), m.tickLabelY, {
+        size: m.tickFont,
         color: T.PALETTE.textFaint,
       });
     }
@@ -770,24 +952,29 @@ export class DiceGame {
 
   /** Small pins for the last few results so the spread is visible at a glance. */
   drawHistoryPins() {
+    const m = this.metrics();
+    // Dropped by layout() on stages too short to afford the band.
+    if (!m || !m.pins) return;
+
     const n = Math.min(PIN_HISTORY, this.history.length);
     if (n === 0) return;
 
     const ctx = this.ctx;
-    const y = this.trackY() + 11 + 40;
+    const y = m.pinY;
+    const pw = Math.max(3, m.pinsH * 0.3);
 
     ctx.save();
     for (let i = 0; i < n; i++) {
       const entry = this.history[i];
       const a = 0.9 - (i / PIN_HISTORY) * 0.66;
       ctx.fillStyle = T.alpha(entry.win ? T.PALETTE.mint : T.PALETTE.red, a);
-      T.roundRect(ctx, this.trackX(entry.roll) - 2, y, 4, 14, 2);
+      T.roundRect(ctx, this.trackX(entry.roll) - pw / 2, y, pw, m.pinsH, pw / 2);
       ctx.fill();
     }
     ctx.restore();
 
-    T.caption(ctx, `Last ${n}`, this.trackPad(), y + 26, {
-      size: 9,
+    T.caption(ctx, `Last ${n}`, m.pad, y + m.pinsH + Math.max(3, 4 * m.s) + m.pinCapFont / 2, {
+      size: m.pinCapFont,
       align: 'left',
       color: T.PALETTE.textFaint,
     });
@@ -798,6 +985,9 @@ export class DiceGame {
    * short-lived pin once it settles.
    */
   drawResultMarker() {
+    const m = this.metrics();
+    if (!m) return;
+
     const rolling = !!this.rollAnimation;
     const settled = this.state === 'won' || this.state === 'lost';
     if (!rolling && !settled) return;
@@ -811,38 +1001,41 @@ export class DiceGame {
     }
 
     const ctx = this.ctx;
-    const cy = this.trackY();
-    const th = 22;
-    const ty = cy - th / 2;
+    const cy = m.railCY;
+    const th = m.railH;
+    const ty = m.railTop;
     const v = this.animatedRoll;
     const mx = this.trackX(v);
     const win = this.condition === 'over' ? v > this.target : v < this.target;
     const color = win ? T.PALETTE.mint : T.PALETTE.red;
 
+    // Bright bar cutting the rail
+    const bw = m.markerBar;
+    const over = Math.max(3, th * 0.23);
     ctx.save();
     ctx.globalAlpha = fade;
-
-    // Bright bar cutting the rail
     ctx.shadowColor = color;
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = Math.max(7, th * 0.64);
     ctx.fillStyle = T.PALETTE.white;
-    T.roundRect(ctx, mx - 1.75, ty - 5, 3.5, th + 10, 1.75);
+    T.roundRect(ctx, mx - bw / 2, ty - over, bw, th + over * 2, bw / 2);
     ctx.fill();
     ctx.restore();
 
-    T.glowOrb(ctx, mx, cy, 7, color, { halo: 3.6, core: true });
+    T.glowOrb(ctx, mx, cy, m.markerOrb, color, { halo: 3.6, core: true });
 
-    // Settled pin: chevron above the rail pointing at the landing spot.
+    // Settled pin: chevron in the reserved slot between the knob and the bubble tail.
     if (!rolling && settled) {
+      const tipY = cy - m.knobR - m.chevPad;
+      const halfW = m.chevH * 0.62;
       ctx.save();
       ctx.globalAlpha = fade;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = Math.max(6, m.chevH * 1.1);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(mx, ty - 8);
-      ctx.lineTo(mx - 7, ty - 19);
-      ctx.lineTo(mx + 7, ty - 19);
+      ctx.moveTo(mx, tipY);
+      ctx.lineTo(mx - halfW, tipY - m.chevH);
+      ctx.lineTo(mx + halfW, tipY - m.chevH);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -851,58 +1044,64 @@ export class DiceGame {
 
   /** Target knob: glow orb backing, physical bezel, floating value bubble above. */
   drawHandle() {
+    const m = this.metrics();
+    if (!m) return;
+
     const ctx = this.ctx;
-    const cy = this.trackY();
-    const th = 22;
-    const ty = cy - th / 2;
+    const cy = m.railCY;
     const tx = this.trackX(this.target);
+    const kr = m.knobR;
     const gold = T.PALETTE.gold;
 
     // Idle breathing, disabled under reduced motion.
     const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const pulse = this._reducedMotion ? 0 : Math.sin(t * 0.0025) * 0.8;
+    const pulse = this._reducedMotion ? 0 : Math.sin(t * 0.0025) * kr * 0.062;
 
-    T.glowOrb(ctx, tx, cy, 11 + pulse, gold, { halo: 2.9, core: false });
+    T.glowOrb(ctx, tx, cy, kr * 0.85 + pulse, gold, { halo: 2.9, core: false });
 
-    // Bezel — the radial gradient is built once at the origin and reused under translate.
+    // Bezel — the radial gradient is built once per size at the origin and reused under
+    // translate; resize() drops it because its stops are scaled to the knob radius.
     ctx.save();
     ctx.translate(tx, cy);
     if (!this._knobGrad) {
-      const kg = ctx.createRadialGradient(-4, -6, 1, 0, 0, 14);
+      const kg = ctx.createRadialGradient(-kr * 0.31, -kr * 0.46, kr * 0.08, 0, 0, kr * 1.08);
       kg.addColorStop(0, '#f8fafc');
       kg.addColorStop(0.45, '#cbd5e1');
       kg.addColorStop(1, '#64748b');
       this._knobGrad = kg;
     }
     ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowBlur = Math.max(6, kr * 0.77);
+    ctx.shadowOffsetY = Math.max(2, kr * 0.23);
     ctx.fillStyle = this._knobGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, 13, 0, Math.PI * 2);
+    ctx.arc(0, 0, kr, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     ctx.strokeStyle = T.alpha(gold, 0.85);
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(1.5, kr * 0.155);
     ctx.beginPath();
-    ctx.arc(0, 0, 13, 0, Math.PI * 2);
+    ctx.arc(0, 0, kr, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.fillStyle = '#0b111a';
     ctx.beginPath();
-    ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, kr * 0.35, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // Floating value bubble
-    const bw = 92;
-    const bh = 40;
-    const pad = this.trackPad();
-    const tw = this.trackWidth();
-    const bx = clamp(tx - bw / 2, pad - 14, pad + tw - bw + 14);
-    const by = ty - 34 - bh;
+    if (!m.bubble) return;
+
+    // Floating value bubble, clamped to the canvas rather than the rail so it can never
+    // paint off-stage when the target sits hard against either end of a narrow track.
+    const bw = m.bubbleW;
+    const bh = m.bubbleH;
+    const bx = clamp(tx - bw / 2, 4, Math.max(4, m.w - bw - 4));
+    const by = m.bubbleY;
+    const tailHalf = Math.max(4, bw * 0.075);
+    const tailX = clamp(tx, bx + tailHalf + 2, bx + bw - tailHalf - 2);
 
     // Tail from bubble down toward the knob
     ctx.save();
@@ -910,20 +1109,24 @@ export class DiceGame {
     ctx.strokeStyle = T.alpha(gold, 0.35);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(clamp(tx, bx + 12, bx + bw - 12) - 7, by + bh - 1);
-    ctx.lineTo(clamp(tx, bx + 12, bx + bw - 12) + 7, by + bh - 1);
-    ctx.lineTo(tx, by + bh + 10);
+    ctx.moveTo(tailX - tailHalf, by + bh - 1);
+    ctx.lineTo(tailX + tailHalf, by + bh - 1);
+    ctx.lineTo(tx, by + bh + m.bubbleTail);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.restore();
 
-    T.panel(ctx, bx, by, bw, bh, { radius: 11, accent: gold });
-    T.caption(ctx, 'Target', bx + bw / 2, by + 12, { size: 8.5, color: T.PALETTE.textFaint });
-    numText(ctx, this.target.toFixed(2), bx + bw / 2, by + 27, {
-      size: 17,
+    const value = this.target.toFixed(2);
+    T.panel(ctx, bx, by, bw, bh, { radius: Math.max(7, bh * 0.27), accent: gold });
+    T.caption(ctx, 'Target', bx + bw / 2, by + bh * 0.30, {
+      size: Math.max(7, bh * 0.21),
+      color: T.PALETTE.textFaint,
+    });
+    numText(ctx, value, bx + bw / 2, by + bh * 0.68, {
+      size: fitSize(ctx, value, Math.max(11, bh * 0.42), bw - 12, MONO, 800),
       color: gold,
-      glow: 10,
+      glow: Math.max(5, bh * 0.25),
     });
   }
 
@@ -933,14 +1136,17 @@ export class DiceGame {
    * Rolled-number readout: dim and compact mid-slide, then a full-size coloured hero.
    */
   drawHero() {
+    const m = this.metrics();
+    if (!m) return;
+
     const ctx = this.ctx;
-    const w = this.width;
+    const w = m.w;
     const rolling = !!this.rollAnimation || this.state === 'rolling';
     const won = this.state === 'won';
     const lost = this.state === 'lost';
 
-    const heroY = Math.max(64, this.height * 0.245);
-    const base = clamp(w * 0.085, 44, 92);
+    const heroY = m.heroY;
+    const base = m.heroSize;
     const size = rolling ? base * 0.8 : base;
     const color = rolling ? T.PALETTE.textDim : won ? T.PALETTE.mint : lost ? T.PALETTE.red : T.PALETTE.text;
 
@@ -948,13 +1154,16 @@ export class DiceGame {
       ? this.animatedRoll.toFixed(2)
       : (this.lastRoll === null ? this.displayRoll.toFixed(2) : this.lastRoll.toFixed(2));
 
-    // Landing pop
+    // Landing pop, bounded by HERO_POP so layout() can reserve exactly this much headroom.
     let scale = 1;
     if (!rolling && (won || lost) && !this._reducedMotion) {
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const p = clamp((now - this._settleAt) / 300, 0, 1);
-      scale = 1 + 0.16 * Math.pow(1 - p, 2.4);
+      scale = 1 + (HERO_POP - 1) * Math.pow(1 - p, 2.4);
     }
+
+    // The pop enlarges the glyphs, so the width budget is discounted by it.
+    const fitted = fitSize(ctx, value, size, (w - 8) / scale, MONO, 900);
 
     ctx.save();
     if (scale !== 1) {
@@ -963,9 +1172,9 @@ export class DiceGame {
       ctx.translate(-w / 2, -heroY);
     }
     T.heroText(ctx, value, w / 2, heroY, {
-      size,
+      size: fitted,
       color,
-      blur: rolling ? 12 : 34,
+      blur: rolling ? Math.max(6, base * 0.13) : Math.max(12, base * 0.37),
       family: MONO,
     });
     ctx.restore();
@@ -976,56 +1185,73 @@ export class DiceGame {
     else if (lost) sub = `Loss  ·  Roll ${this.condition} ${this.target.toFixed(2)}`;
     else sub = `Roll ${this.condition} ${this.target.toFixed(2)}`;
 
-    T.caption(ctx, sub, w / 2, heroY + base * 0.68, {
-      size: 12,
+    // caption() uppercases before painting, so the fit has to be measured uppercased.
+    T.caption(ctx, sub, w / 2, m.subY, {
+      size: fitSize(ctx, sub.toUpperCase(), m.subFont, w - m.pad, 'Inter, sans-serif', 700),
       color: won ? T.alpha(T.PALETTE.mint, 0.9) : lost ? T.alpha(T.PALETTE.red, 0.85) : T.PALETTE.textDim,
     });
   }
 
   /**
-   * Glass stat strip: win chance, multiplier, profit on win.
+   * Win chance, multiplier and profit on win. `cards` frames each in its own glass
+   * panel; on a short stage layout() downgrades to a single shared `strip` and then to
+   * nothing, so the readout degrades instead of overflowing.
    * @param {string} accent
    */
   drawStats(accent) {
-    const h = this.height;
-    if (h < 300) return;
+    const m = this.metrics();
+    if (!m || m.statsMode === 'none') return;
 
-    const w = this.width;
-    const pad = this.trackPad();
-    const gap = 14;
-    const sw = clamp((w - pad * 2 - gap * 2) / 3, 96, 200);
-    const sh = 54;
-    const total = sw * 3 + gap * 2;
-    const sy = h - sh - 26;
-    let sx = (w - total) / 2;
+    const ctx = this.ctx;
+    const w = m.w;
+    const pad = m.pad;
+    const sh = m.statsH;
+    const sy = m.statsY;
+    const strip = m.statsMode === 'strip';
+    const gap = strip ? 0 : m.statsGap;
+    const sw = Math.max(40, (w - pad * 2 - gap * 2) / 3);
 
     const chance = `${this.getWinChance().toFixed(2)}%`;
-    const mult = `${this.getMultiplier().toFixed(4)}x`;
+    // 4dp only where the cell can hold "10000.0000x" without shrinking to mush.
+    const mult = `${this.getMultiplier().toFixed(sw >= 118 ? 4 : 2)}x`;
     const profit = `$${this.getProfit().toFixed(2)}`;
 
-    this.drawStatCard(sx, sy, sw, sh, 'Win Chance', chance, T.PALETTE.cyan, accent);
-    sx += sw + gap;
-    this.drawStatCard(sx, sy, sw, sh, 'Multiplier', mult, T.PALETTE.text, accent);
-    sx += sw + gap;
-    this.drawStatCard(sx, sy, sw, sh, 'Profit on Win', profit, T.PALETTE.mint, accent);
+    if (strip) T.panel(ctx, pad, sy, w - pad * 2, sh, { radius: Math.max(8, sh * 0.3), accent });
+
+    let sx = strip ? pad : (w - (sw * 3 + gap * 2)) / 2;
+    const cells = [
+      ['Win Chance', chance, T.PALETTE.cyan],
+      ['Multiplier', mult, T.PALETTE.text],
+      ['Profit on Win', profit, T.PALETTE.mint],
+    ];
+    for (let i = 0; i < cells.length; i++) {
+      if (!strip) T.panel(ctx, sx, sy, sw, sh, { radius: Math.max(8, sh * 0.22), accent });
+      this.drawStatCell(sx + sw / 2, sy, sh, sw, cells[i][0], cells[i][1], cells[i][2]);
+      sx += sw + gap;
+    }
   }
 
   /**
-   * One glass stat card.
-   * @param {number} x
-   * @param {number} y
-   * @param {number} w
-   * @param {number} h
+   * One stat readout — label over value, both fitted to the cell so nothing clips.
+   * @param {number} cx Cell centre x.
+   * @param {number} y Cell top.
+   * @param {number} h Cell height.
+   * @param {number} cw Cell width budget.
    * @param {string} label
    * @param {string} value
    * @param {string} valueColor
-   * @param {string} accent
    */
-  drawStatCard(x, y, w, h, label, value, valueColor, accent) {
+  drawStatCell(cx, y, h, cw, label, value, valueColor) {
     const ctx = this.ctx;
-    T.panel(ctx, x, y, w, h, { radius: 12, accent });
-    T.caption(ctx, label, x + w / 2, y + 17, { size: 9, color: T.PALETTE.textFaint });
-    numText(ctx, value, x + w / 2, y + 36, { size: 16, color: valueColor });
+    const budget = cw - 8;
+    T.caption(ctx, label, cx, y + h * 0.31, {
+      size: fitSize(ctx, label.toUpperCase(), clamp(h * 0.17, 7, 10), budget, 'Inter, sans-serif', 700),
+      color: T.PALETTE.textFaint,
+    });
+    numText(ctx, value, cx, y + h * 0.69, {
+      size: fitSize(ctx, value, clamp(h * 0.3, 10.5, 17), budget, MONO, 800),
+      color: valueColor,
+    });
   }
 
   /* ------------------------------- VFX ------------------------------------ */
@@ -1060,10 +1286,12 @@ export class DiceGame {
     }
 
     const ctx = this.ctx;
-    const w = this.width;
-    const h = this.height;
+    const m = this.metrics();
+    if (!m) return;
+    const w = m.w;
+    const h = m.h;
     const cx = this.trackX(this.animatedRoll);
-    const cy = this.trackY();
+    const cy = m.railCY;
     const radius = Math.max(w, h) * (0.28 + 0.55 * p);
 
     ctx.save();
@@ -1078,9 +1306,9 @@ export class DiceGame {
     const ringAlpha = Math.max(0, 0.55 * (1 - p * 1.4));
     if (ringAlpha > 0.01) {
       ctx.strokeStyle = T.alpha(this.flashState.color, ringAlpha);
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = Math.max(1.5, 2.5 * m.s);
       ctx.beginPath();
-      ctx.arc(cx, cy, 18 + p * 190, 0, Math.PI * 2);
+      ctx.arc(cx, cy, m.knobR + p * Math.max(w, h) * 0.22, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
@@ -1091,15 +1319,18 @@ export class DiceGame {
     const colors = [T.PALETTE.mint, T.PALETTE.greenSoft, T.PALETTE.green, T.PALETTE.gold, T.PALETTE.white];
     const ox = Number.isFinite(x) ? x : this.width / 2;
     const oy = Number.isFinite(y) ? y : this.height / 2;
+    // Burst geometry is in stage-relative px, otherwise a desktop-tuned spray blows
+    // clean off a 296px pane in three frames.
+    const vs = this._vfxScale;
     for (let i = 0; i < 30; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 2 + Math.random() * 6;
+      const speed = (2 + Math.random() * 6) * vs;
       this.particles.push({
         x: ox,
         y: oy,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 2,
-        size: 2 + Math.random() * 3.5,
+        vy: Math.sin(angle) * speed - 2 * vs,
+        size: Math.max(1.2, (2 + Math.random() * 3.5) * vs),
         color: colors[Math.floor(Math.random() * colors.length)],
         life: 1.0,
       });

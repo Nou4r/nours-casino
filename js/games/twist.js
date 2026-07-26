@@ -25,14 +25,19 @@ const TAU = Math.PI * 2;
 const TOTAL_SEGMENTS = 36;
 const SHAKE_MS = 500;
 const OVERLAY_DUR = 2.6;      // seconds a bust / cashout readout stays up
-const SEG_GAP_PX = 9;         // target pixel gap between segments on every ring
+const SEG_GAP_PX = 9;         // segment gap at the reference stage; scaled per stage
 const TRAIL_STEPS = 7;        // orbital-body comet trail resolution
 const MAX_PARTICLES = 240;
 const MAX_SHOCKWAVES = 10;
-const LEGEND_BAND = 34;       // vertical space reserved for the ring legend
+const LEGEND_ROW = 30;        // legend row height at the reference stage
+const REF_STAGE = 420;        // stage edge every pixel constant in this file is authored against
+const BODY_HALO_REACH = 3.4;  // outermost ink of an orbiting body (halo / corona) as a multiple of its radius
 
 /** Deep-space base colour that unlit segments sink into. */
 const VOID_R = 7, VOID_G = 11, VOID_B = 18;
+
+/** Clamp helper — every responsive constant below runs through it. */
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /** @returns {[number, number, number]} */
 function hexToRgb(hex) {
@@ -59,8 +64,8 @@ function liftMix(hex, t, a) {
 }
 
 /** Angular gap sized so every ring shows the same *pixel* gap. */
-function segGap(radius) {
-  return Math.min(0.17, Math.max(0.028, SEG_GAP_PX / Math.max(1, radius)));
+function segGap(radius, gapPx) {
+  return Math.min(0.17, Math.max(0.028, gapPx / Math.max(1, radius)));
 }
 
 /** Angular length of one segment once the gaps are subtracted. */
@@ -120,6 +125,9 @@ export class TwistGame {
       opts = options;
     }
 
+    // Held so resize() and the ResizeObserver always measure the stage host,
+    // not the canvas the CSS has already stretched to fill it.
+    this.container = containerEl;
     this.options = opts;
     this.audio = opts.audio || null;
     this.onUpdate = opts.onUpdate || null;
@@ -190,7 +198,11 @@ export class TwistGame {
     this.ringPaint = this.ringConfigs.map((conf) => this._buildRingPaint(conf));
 
     // Reusable scratch objects so the draw path allocates nothing per frame.
-    this.geom = { cx: 0, cy: 0, maxRadius: 0, band: 0, stroke: 8 };
+    this.geom = {
+      w: -1, h: -1, s: 1, cx: 0, cy: 0, maxRadius: 0, stroke: 8, innerR: 0,
+      gapPx: SEG_GAP_PX, compact: false,
+      legend: { on: false, rows: 1, x: 0, y: 0, w: 0, h: 0 }
+    };
     this._readout = { mult: 1.00, accent: T.PALETTE.text, label: 'READY TO SPIN', labelColor: T.PALETTE.textDim, blur: 18 };
 
     this.needsPaint = true;
@@ -217,6 +229,14 @@ export class TwistGame {
 
     // Sizing setup
     this.resize = this.resize.bind(this);
+    this._ro = null;
+    this._dpr = 0;
+    if (this.canvas && typeof ResizeObserver !== 'undefined') {
+      // window resize alone misses every container-driven change: entering the
+      // game from the lobby, the sidebar collapsing, a mobile orientation reflow.
+      this._ro = new ResizeObserver(this.resize);
+      this._ro.observe(this.container || this.canvas.parentElement || this.canvas);
+    }
     if (typeof window !== 'undefined') {
       this.resize();
       window.addEventListener('resize', this.resize);
@@ -503,25 +523,39 @@ export class TwistGame {
    * Resize canvas to fit container bounds with High-DPI support.
    */
   resize() {
-    if (!this.canvas || typeof window === 'undefined') return;
-    const parent = this.canvas.parentElement || (typeof document !== 'undefined' ? document.body : null);
-    const rect = parent && typeof parent.getBoundingClientRect === 'function'
-      ? parent.getBoundingClientRect()
-      : { width: 500, height: 500 };
-    const width = Math.max(300, Math.floor(rect.width || 500));
-    const height = Math.max(300, Math.floor(rect.height || width));
-    const dpr = window.devicePixelRatio || 1;
+    if (!this.canvas) return;
+    const host = this.container || this.canvas.parentElement;
+    const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
+
+    // A hidden pane measures 0x0. Falling back to a default size here would
+    // build a canvas wider than the phone viewport and hand that width back to
+    // the grid as a max-content contribution. Keeping the previous size costs
+    // nothing: enterGame()'s rAF resize and the ResizeObserver both fire again
+    // the moment the stage is actually on screen.
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+    // Clamp DOWN to the host, never up — a floor larger than the measured stage
+    // is exactly what pushed a 462px canvas out of a 390px viewport.
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    // Cap DPR: phones report 3-4, and this stage pays for every extra pixel 36
+    // shadow-blurred segments at a time. 3 keeps iPhone-class screens crisp
+    // without ever allocating a 4x backing store.
+    const dpr = Math.min(3, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+    if (width === this.width && height === this.height && dpr === this._dpr) return;
 
     this.width = width;
     this.height = height;
+    this._dpr = dpr;
 
-    this.canvas.width = width * dpr;
-    this.canvas.height = height * dpr;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
 
     if (this.ctx) {
-      this.ctx.resetTransform?.();
+      if (typeof this.ctx.resetTransform === 'function') this.ctx.resetTransform();
+      else this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.ctx.scale(dpr, dpr);
     }
 
@@ -611,6 +645,7 @@ export class TwistGame {
       cancelAnimationFrame(this.animId);
     }
     this.animId = null;
+    if (this._ro) { this._ro.disconnect(); this._ro = null; }
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this.resize);
     }
@@ -721,17 +756,74 @@ export class TwistGame {
 
   /**
    * Resolve stage geometry into the reusable `this.geom` scratch object.
+   *
+   * Everything downstream — ring radii, stroke widths, segment gaps, body
+   * sizes, every font — is derived from `g.s`, so the stack reads the same on
+   * a 296px phone stage as on a 1200px desktop one.
    * @private
    */
   _measure() {
     const g = this.geom;
     const w = this.width || 0;
     const h = this.height || 0;
-    g.band = h >= 340 ? LEGEND_BAND : 0;
-    g.cx = w / 2;
-    g.cy = h / 2 - g.band * 0.5;
-    g.maxRadius = Math.min(w, h - g.band) * 0.44;
-    g.stroke = Math.max(6, g.maxRadius * 0.052);
+    // The draw path calls this every frame; geometry only moves when the stage
+    // does, so recompute on a size change and hand back the cache otherwise.
+    if (g.w === w && g.h === h) return g;
+    g.w = w;
+    g.h = h;
+
+    // One scale drives every pixel constant here. The clamp stops a 4:1
+    // landscape sliver collapsing type to nothing and a 1200px desktop stage
+    // inflating it past the art.
+    const s = clamp(Math.min(w, h) / REF_STAGE, 0.52, 1.7);
+    const pad = Math.round(clamp(10 * s, 6, 18));
+    const rowH = Math.round(clamp(LEGEND_ROW * s, 20, 36));
+    const colW = Math.round(clamp(140 * s, 104, 200));
+
+    // Legend placement. A bottom bar costs the rings vertical room that only a
+    // stage taller than ~240px can spare; a landscape sliver has none, so the
+    // tally moves into the horizontal slack a circular ring stack leaves beside
+    // it. Below both thresholds the rings win outright and the tally is dropped.
+    const bottom = h >= 240 && h >= w * 0.5;
+    const side = !bottom && h >= 130 && (w - Math.min(w, h)) >= (colW + pad) * 2;
+    const band = bottom ? rowH + pad : 0;
+    const rail = side ? colW + pad : 0;
+
+    const availW = Math.max(0, w - pad * 2 - rail);
+    const availH = Math.max(0, h - pad * 2 - band);
+    // Rings are circular, so the smaller axis rules: a landscape stage lays out
+    // the same stack a square one does instead of running off top and bottom.
+    const fit = Math.min(availW, availH) * 0.5;
+
+    // The outermost ink is the Sun's halo riding the outer ring, not the ring
+    // stroke — reserve for it or the glow takes a hard cut at the canvas edge.
+    let reach = 0;
+    for (const conf of this.ringConfigs) {
+      reach = Math.max(reach, conf.radiusRatio + conf.bodyScale * BODY_HALO_REACH);
+    }
+
+    const R = Math.max(0, (fit - 2 * s) / reach);
+    g.s = s;
+    g.maxRadius = R;
+    g.stroke = clamp(R * 0.052, 2.5, 20);
+    g.gapPx = clamp(SEG_GAP_PX * s, 3.5, 12);
+    // With a side rail it is the ring+rail group that gets centred, so the
+    // composition still reads as balanced on a wide stage.
+    g.cx = side ? (w - fit * 2 - rail) * 0.5 + fit : w * 0.5;
+    g.cy = pad + availH * 0.5;
+    g.innerR = Math.max(12, R * this.ringConfigs[0].radiusRatio - g.stroke * 0.85);
+    // Long-form captions stop fitting the centre glass well before the stage
+    // stops being usable; under this the readout switches to compact labels.
+    g.compact = g.innerR * 1.55 < 122;
+
+    const L = g.legend;
+    L.on = bottom || side;
+    L.rows = bottom ? 1 : 3;
+    L.w = bottom ? Math.min(availW, Math.round(clamp(348 * s, 220, 430))) : colW;
+    L.h = bottom ? rowH : rowH * 3;
+    L.x = bottom ? g.cx - L.w * 0.5 : g.cx + fit + pad;
+    L.y = bottom ? h - pad - L.h : clamp(g.cy - L.h * 0.5, pad, Math.max(pad, h - pad - L.h));
+
     return g;
   }
 
@@ -745,8 +837,9 @@ export class TwistGame {
 
     const conf = this.ringConfigs[ringIdx];
     const g = this._measure();
+    const s = g.s;
     const R = g.maxRadius * conf.radiusRatio;
-    const gap = segGap(R);
+    const gap = segGap(R, g.gapPx);
     const arc = segArc(conf.count, gap);
     const midAngle = this.rotationAngles[ringIdx] + segmentIdx * (arc + gap) + arc / 2;
 
@@ -758,13 +851,13 @@ export class TwistGame {
     for (let i = 0; i < 22; i++) {
       // bias the burst outward along the ring normal so it reads as ignition
       const ang = Math.random() * TAU;
-      const spd = 1 + Math.random() * 3;
+      const spd = (1 + Math.random() * 3) * s;
       this.particles.push({
         x: cx,
         y: cy,
-        vx: Math.cos(ang) * spd + nx * 0.9,
-        vy: Math.sin(ang) * spd + ny * 0.9,
-        size: 1.5 + Math.random() * 3.5,
+        vx: Math.cos(ang) * spd + nx * 0.9 * s,
+        vy: Math.sin(ang) * spd + ny * 0.9 * s,
+        size: (1.5 + Math.random() * 3.5) * s,
         color: Math.random() < 0.3 ? conf.colorGlow : conf.color,
         alpha: 1.0,
         decay: 0.02 + Math.random() * 0.03,
@@ -782,18 +875,19 @@ export class TwistGame {
   spawnBustParticles() {
     if (!this.width || !this.height) return;
     const g = this._measure();
+    const s = g.s;
     const cx = g.cx;
     const cy = g.cy;
 
     for (let i = 0; i < 44; i++) {
       const ang = Math.random() * TAU;
-      const spd = 2 + Math.random() * 6;
+      const spd = (2 + Math.random() * 6) * s;
       this.particles.push({
         x: cx,
         y: cy,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        size: 2 + Math.random() * 5,
+        size: (2 + Math.random() * 5) * s,
         color: Math.random() < 0.5 ? T.PALETTE.red : T.PALETTE.orange,
         alpha: 1.0,
         decay: 0.015 + Math.random() * 0.025,
@@ -814,18 +908,19 @@ export class TwistGame {
   spawnCashoutParticles() {
     if (!this.width || !this.height) return;
     const g = this._measure();
+    const s = g.s;
     const cx = g.cx;
     const cy = g.cy;
 
     for (let i = 0; i < 54; i++) {
       const ang = Math.random() * TAU;
-      const spd = 2 + Math.random() * 7;
+      const spd = (2 + Math.random() * 7) * s;
       this.particles.push({
         x: cx,
         y: cy,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        size: 2 + Math.random() * 5,
+        size: (2 + Math.random() * 5) * s,
         color: Math.random() < 0.55 ? T.PALETTE.gold : T.PALETTE.mint,
         alpha: 1.0,
         decay: 0.01 + Math.random() * 0.02,
@@ -862,7 +957,7 @@ export class TwistGame {
     ctx.save();
     if (this.shakeTime > 0 && !this.reducedMotion) {
       const k = this.shakeTime / SHAKE_MS;
-      const mag = k * k * 11;
+      const mag = k * k * 11 * g.s;
       ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
     }
 
@@ -876,7 +971,7 @@ export class TwistGame {
     ctx.restore();
 
     this.drawStateWash(ctx, w, h, g);
-    if (g.band > 0) this.drawLegend(ctx, w, h, g);
+    if (g.legend.on) this.drawLegend(ctx, g);
 
     ctx.restore();
   }
@@ -931,7 +1026,7 @@ export class TwistGame {
       if (R <= 2) continue;
 
       const lw = g.stroke;
-      const gap = segGap(R);
+      const gap = segGap(R, g.gapPx);
       const arc = segArc(conf.count, gap);
       const rot = this.rotationAngles[idx];
       const lit = this.segments[conf.id];
@@ -979,7 +1074,7 @@ export class TwistGame {
     // knock the middle back out so only a hairline rim survives
     ctx.beginPath();
     ctx.arc(g.cx, g.cy, R, a0, a1);
-    ctx.lineWidth = Math.max(1, lw - 2.4);
+    ctx.lineWidth = Math.max(1, lw * 0.7);
     ctx.strokeStyle = paint.hollow;
     ctx.stroke();
 
@@ -996,7 +1091,7 @@ export class TwistGame {
     ctx.lineWidth = lw * (1.04 + 0.26 * flash);
     ctx.strokeStyle = conf.color;
     ctx.shadowColor = conf.colorGlow;
-    ctx.shadowBlur = 11 + 6 * pulse + 26 * flash;
+    ctx.shadowBlur = (11 + 6 * pulse + 26 * flash) * this.geom.s;
     ctx.stroke();
 
     ctx.shadowBlur = 0;
@@ -1024,13 +1119,13 @@ export class TwistGame {
       if (R <= 2) continue;
 
       const ang = this.bodyAngles[idx] + conf.phase;
-      const r = Math.max(3, g.maxRadius * conf.bodyScale);
+      const r = Math.max(2, g.maxRadius * conf.bodyScale);
       const bx = g.cx + Math.cos(ang) * R;
       const by = g.cy + Math.sin(ang) * R;
 
       // trail: short arcs fading behind the body along its travel direction
       const dir = conf.speed >= 0 ? 1 : -1;
-      const step = Math.max(0.014, 5 / R);
+      const step = Math.max(0.012, (5 * g.s) / R);
       ctx.save();
       ctx.lineCap = 'round';
       ctx.lineWidth = r * 0.9;
@@ -1109,28 +1204,32 @@ export class TwistGame {
    */
   resolveReadout() {
     const r = this._readout;
+    // A phone-sized centre glass cannot hold "BUSTED AT 12/36" at a legible
+    // size, so the caption drops to its short form rather than being shrunk
+    // under 8px by _fitText.
+    const short = this.geom.compact;
     if (this.overlayLife > 0 && this.overlayTone === 'bust') {
       r.mult = this.overlayMult;
       r.accent = T.PALETTE.red;
-      r.label = `BUSTED AT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.label = short ? `BUST ${this.overlaySegs}/${TOTAL_SEGMENTS}` : `BUSTED AT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
       r.labelColor = T.alpha(T.PALETTE.red, 0.85);
       r.blur = 34;
     } else if (this.overlayLife > 0 && this.overlayTone === 'cashout') {
       r.mult = this.overlayMult;
       r.accent = T.PALETTE.gold;
-      r.label = `CASHED OUT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.label = short ? `PAID ${this.overlaySegs}/${TOTAL_SEGMENTS}` : `CASHED OUT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
       r.labelColor = T.alpha(T.PALETTE.gold, 0.85);
       r.blur = 34;
     } else if (this.inGame) {
       r.mult = this.multiplier;
       r.accent = T.PALETTE.mint;
-      r.label = `${this.totalLitCount} / ${TOTAL_SEGMENTS} SEGMENTS`;
+      r.label = short ? `${this.totalLitCount}/${TOTAL_SEGMENTS} SEGS` : `${this.totalLitCount} / ${TOTAL_SEGMENTS} SEGMENTS`;
       r.labelColor = T.PALETTE.textDim;
       r.blur = 26;
     } else {
       r.mult = this.multiplier;
       r.accent = T.PALETTE.text;
-      r.label = 'READY TO SPIN';
+      r.label = short ? 'READY' : 'READY TO SPIN';
       r.labelColor = T.PALETTE.textFaint;
       r.blur = 14;
     }
@@ -1140,9 +1239,10 @@ export class TwistGame {
   /** Glass readout panel at the centre of the orbit. */
   drawCore(ctx, g) {
     const r = this.resolveReadout();
-    const innerR = Math.max(28, g.maxRadius * this.ringConfigs[0].radiusRatio - g.stroke * 0.85);
-    const pw = innerR * 1.46;
-    const ph = innerR * 0.9;
+    const s = g.s;
+    const innerR = g.innerR;
+    const pw = innerR * 1.55;
+    const ph = innerR * 0.92;
     const x = g.cx - pw / 2;
     const y = g.cy - ph / 2;
 
@@ -1150,24 +1250,25 @@ export class TwistGame {
     ctx.save();
     ctx.beginPath();
     ctx.arc(g.cx, g.cy, innerR, 0, TAU);
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = Math.max(1, 1.2 * s);
     ctx.strokeStyle = T.alpha(r.accent, 0.18);
     ctx.stroke();
     ctx.restore();
 
-    T.panel(ctx, x, y, pw, ph, { radius: Math.min(18, ph * 0.3), accent: r.accent });
+    T.panel(ctx, x, y, pw, ph, { radius: Math.min(18 * s, ph * 0.3), accent: r.accent });
 
     // Fit both readouts to the panel so a long caption or a four-figure
     // multiplier can never bleed past the glass.
-    const inset = pw - 18;
-    const heroSize = this._fitText(ctx, `${r.mult.toFixed(2)}x`, 900, Math.max(18, Math.min(54, ph * 0.44)), "Inter, 'Roboto Mono', monospace", inset);
-    T.heroText(ctx, `${r.mult.toFixed(2)}x`, g.cx, g.cy - ph * 0.12, {
+    const inset = pw * 0.88;
+    const mult = `${r.mult.toFixed(2)}x`;
+    const heroSize = this._fitText(ctx, mult, 900, clamp(ph * 0.46, 11, 56), "Inter, 'Roboto Mono', monospace", inset);
+    T.heroText(ctx, mult, g.cx, g.cy - ph * 0.12, {
       size: heroSize,
       color: r.accent,
-      blur: r.blur
+      blur: r.blur * s
     });
 
-    const capSize = this._fitText(ctx, String(r.label).toUpperCase(), 700, Math.max(8, Math.min(13, ph * 0.135)), 'Inter, sans-serif', inset);
+    const capSize = this._fitText(ctx, String(r.label).toUpperCase(), 700, clamp(ph * 0.15, 8, 14), 'Inter, sans-serif', inset);
     T.caption(ctx, r.label, g.cx, g.cy + ph * 0.29, {
       size: capSize,
       color: r.labelColor
@@ -1190,6 +1291,7 @@ export class TwistGame {
   /** Expanding rings for bust / cashout / segment ignition. */
   drawShockwaves(ctx, g) {
     if (this.shockwaves.length === 0) return;
+    const sc = this.geom.s;
     ctx.save();
     for (const s of this.shockwaves) {
       const k = Math.min(1, s.life / s.dur);
@@ -1198,7 +1300,7 @@ export class TwistGame {
       ctx.strokeStyle = T.alpha(s.color, 0.85 * fade);
       ctx.lineWidth = Math.max(0.6, s.width * (1 - k * 0.65));
       ctx.shadowColor = s.color;
-      ctx.shadowBlur = 26 * fade;
+      ctx.shadowBlur = 26 * sc * fade;
       ctx.beginPath();
       ctx.arc(g.cx, g.cy, rad, 0, TAU);
       ctx.stroke();
@@ -1209,20 +1311,21 @@ export class TwistGame {
   /** Debris / celebration sparks. */
   drawParticles(ctx) {
     if (this.particles.length === 0) return;
+    const s = this.geom.s;
     ctx.save();
     for (const p of this.particles) {
       const a = Math.max(0, Math.min(1, p.alpha));
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
       ctx.shadowColor = p.color;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 8 * s;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, TAU);
       ctx.fill();
       if (p.core) {
         ctx.globalAlpha = a * 0.85;
         ctx.fillStyle = T.PALETTE.white;
-        ctx.shadowBlur = 4;
+        ctx.shadowBlur = 4 * s;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size * 0.42, 0, TAU);
         ctx.fill();
@@ -1259,41 +1362,42 @@ export class TwistGame {
     }
   }
 
-  /** Bottom legend: colour key + per-ring fill count. */
-  drawLegend(ctx, w, h, g) {
-    const outer = g.maxRadius * this.ringConfigs[2].radiusRatio + g.stroke * 0.5;
-    const top = Math.min(h - LEGEND_BAND - 6, g.cy + outer + 12);
-    if (top < g.cy + outer * 0.6) return;
+  /** Ring colour key + per-ring fill count, as a bottom bar or a side rail. */
+  drawLegend(ctx, g) {
+    const L = g.legend;
+    const s = g.s;
+    const cellW = L.rows === 1 ? L.w / 3 : L.w;
+    const cellH = L.rows === 1 ? L.h : L.h / 3;
+    const inset = Math.max(7, 14 * s);
+    const dotR = Math.max(2.4, 4.2 * s);
+    const size = clamp(10 * s, 8, 13);
 
-    const pw = Math.min(w - 24, 348);
-    const px = g.cx - pw / 2;
-    const midY = top + LEGEND_BAND / 2;
-    T.panel(ctx, px, top, pw, LEGEND_BAND, { radius: 12 });
+    T.panel(ctx, L.x, L.y, L.w, L.h, { radius: Math.max(8, 12 * s) });
 
-    const cellW = pw / 3;
     for (let i = 0; i < this.ringConfigs.length; i++) {
       const conf = this.ringConfigs[i];
       const paint = this.ringPaint[i];
       const litCount = this.segments[conf.id].reduce(countLit, 0);
-      const left = px + cellW * i;
+      const left = L.rows === 1 ? L.x + cellW * i : L.x;
+      const midY = (L.rows === 1 ? L.y : L.y + cellH * i) + cellH / 2;
       const active = litCount > 0;
 
       ctx.save();
       ctx.fillStyle = active ? conf.color : paint.dim;
       ctx.shadowColor = conf.colorGlow;
-      ctx.shadowBlur = active ? 10 : 0;
+      ctx.shadowBlur = active ? 10 * s : 0;
       ctx.beginPath();
-      ctx.arc(left + 16, midY, 4.2, 0, TAU);
+      ctx.arc(left + inset, midY, dotR, 0, TAU);
       ctx.fill();
       ctx.restore();
 
-      T.caption(ctx, conf.name, left + 27, midY, {
-        size: 10,
+      T.caption(ctx, conf.name, left + inset + dotR + Math.max(3, 5 * s), midY, {
+        size,
         align: 'left',
         color: active ? T.PALETTE.text : T.PALETTE.textDim
       });
-      T.caption(ctx, `${litCount}/${conf.count}`, left + cellW - 14, midY, {
-        size: 10,
+      T.caption(ctx, `${litCount}/${conf.count}`, left + cellW - inset * 0.75, midY, {
+        size,
         align: 'right',
         color: active ? conf.color : T.PALETTE.textFaint
       });

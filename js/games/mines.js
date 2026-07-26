@@ -89,6 +89,8 @@ export async function generateMinesOutcome(serverSeed, clientSeed = '', nonce = 
 
 const GRID_SIDE = 5;
 const TILE_COUNT = 25;
+/** Stat badges drawn around the board. */
+const BADGE_COUNT = 4;
 
 /** Reveal pop duration, milliseconds. */
 const POP_MS = 280;
@@ -178,6 +180,7 @@ export class MinesGame {
     this.ctx = null;
     this.width = 900;
     this.height = 620;
+    this.dpr = 1;
     this.geom = null;
     this.stars = T.createStarfield(58, 0x4d1e);
 
@@ -212,6 +215,7 @@ export class MinesGame {
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerLeave = this._onPointerLeave.bind(this);
     this._onPointerDown = this._onPointerDown.bind(this);
+    this._onPointerUp = this._onPointerUp.bind(this);
     this._onMotionChange = this._onMotionChange.bind(this);
 
     // Stage initialization
@@ -697,6 +701,8 @@ export class MinesGame {
     this.canvas.addEventListener('pointermove', this._onPointerMove);
     this.canvas.addEventListener('pointerleave', this._onPointerLeave);
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
+    this.canvas.addEventListener('pointerup', this._onPointerUp);
+    this.canvas.addEventListener('pointercancel', this._onPointerLeave);
 
     if (typeof ResizeObserver !== 'undefined') {
       this._ro = new ResizeObserver(this.resize);
@@ -718,12 +724,23 @@ export class MinesGame {
     if (!this.canvas) return;
     const host = this.container || this.canvas.parentElement;
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
-    const w = Math.max(320, Math.round(rect && rect.width ? rect.width : 900));
-    const h = Math.max(260, Math.round(rect && rect.height ? rect.height : 620));
+    this.dirty = true;
+
+    // A hidden pane measures 0. Sizing to a default here would make the canvas
+    // wider than the viewport and then hand that width back to the host as its
+    // max-content width; keep the last good size and wait for the observer.
+    if (!rect || rect.width < 1 || rect.height < 1) return;
+
+    // Floor, never pad: the host is a hard ceiling, and a canvas a subpixel
+    // wider than its host overhangs the viewport on a phone.
+    const w = Math.floor(rect.width);
+    const h = Math.floor(rect.height);
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    if (w === this.width && h === this.height && dpr === this.dpr && this.geom) return;
 
     this.width = w;
     this.height = h;
+    this.dpr = dpr;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
@@ -736,47 +753,118 @@ export class MinesGame {
     }
 
     this.geom = this.computeGeometry();
-    this.dirty = true;
   }
 
+  /**
+   * Board-first stage layout. Both arrangements are costed and the one that
+   * leaves the square board larger wins: a short, wide stage (phone landscape
+   * ~800x200) has no vertical budget for stacked chrome, and a tall stage has
+   * no horizontal budget for side rails. Choosing by outcome rather than by a
+   * breakpoint keeps every host size in between sane.
+   */
   computeGeometry() {
-    const w = this.width;
-    const h = this.height;
-    const pad = Math.round(clamp(w * 0.03, 16, 34));
-    const badgeH = 58;
-    const barH = 46;
-    const top = pad + badgeH + 16;
-    const barY = h - pad - barH;
-    const areaH = Math.max(90, barY - 14 - top);
-    const areaW = w - pad * 2;
-    const gap = Math.round(clamp(w * 0.012, 6, 14));
-    const cell = Math.max(24, Math.min(
-      (areaW - gap * (GRID_SIDE - 1)) / GRID_SIDE,
-      (areaH - gap * (GRID_SIDE - 1)) / GRID_SIDE
-    ));
-    const side = cell * GRID_SIDE + gap * (GRID_SIDE - 1);
+    const w = Math.max(1, this.width);
+    const h = Math.max(1, this.height);
+    const pad = clamp(Math.min(w, h) * 0.04, 8, 26);
+    const stacked = this.stackedLayout(w, h, pad);
+    const railed = this.railedLayout(w, h, pad);
+    return railed && railed.side > stacked.side ? railed : stacked;
+  }
 
-    const badgeRowW = Math.min(areaW, 660);
-    const btnW = Math.min(168, Math.max(118, w * 0.19));
-    const payW = Math.min(228, Math.max(148, w * 0.26));
-    const barX = (w - (btnW + 12 + payW)) / 2;
+  /** Chrome above and below the board — phone portrait, tablet, square stages. */
+  stackedLayout(w, h, pad) {
+    const avail = h - pad * 2;
+    let vgap = clamp(Math.min(w, h) * 0.025, 5, 16);
+    let badgeH = clamp(h * 0.115, 30, 58);
+    let barH = clamp(h * 0.125, 40, 54); // 40 keeps the in-canvas chip a tap target
 
-    return {
+    // Chrome never eats more than half the vertical budget: on a short stage the
+    // badges and the action bar shrink so the board stays the subject.
+    const chrome = badgeH + barH + vgap * 2;
+    if (chrome > avail * 0.5) {
+      const k = (avail * 0.5) / chrome;
+      vgap *= k;
+      badgeH *= k;
+      barH *= k;
+    }
+
+    const bandY = pad + badgeH + vgap;
+    const bandH = avail - badgeH - barH - vgap * 2;
+    const side = Math.max(0, Math.min(w - pad * 2, bandH));
+    // Chrome follows the board once the board is the wider of the two, so the
+    // stage reads as one column. Below that it holds 260px: four stat cards
+    // narrower than ~60px cannot carry a readable "12.34x".
+    const rowW = Math.min(w - pad * 2, Math.max(side, 260));
+    const rowX = (w - rowW) / 2;
+
+    const badgeGap = clamp(rowW * 0.022, 4, 12);
+    const bw = (rowW - badgeGap * (BADGE_COUNT - 1)) / BADGE_COUNT;
+    const badges = [];
+    for (let i = 0; i < BADGE_COUNT; i++) {
+      badges.push({ x: rowX + i * (bw + badgeGap), y: pad, w: bw, h: badgeH });
+    }
+
+    const colGap = clamp(rowW * 0.025, 5, 12);
+    const btnW = (rowW - colGap) * 0.42;
+    const barY = pad + avail - barH;
+
+    return this.finishLayout({
       pad,
-      badgeH,
-      badgeY: pad,
-      badgeX: (w - badgeRowW) / 2,
-      badgeRowW,
-      gap,
-      cell,
-      gx: (w - side) / 2,
-      gy: top + (areaH - side) / 2,
       side,
-      barY,
-      barH,
-      btn: { x: barX, y: barY + 3, w: btnW, h: 40 },
-      pay: { x: barX + btnW + 12, y: barY, w: payW, h: barH },
-    };
+      gx: (w - side) / 2,
+      gy: bandY + (bandH - side) / 2,
+      badges,
+      btn: { x: rowX, y: barY, w: btnW, h: barH },
+      pay: { x: rowX + btnW + colGap, y: barY, w: rowW - btnW - colGap, h: barH },
+    });
+  }
+
+  /**
+   * Board centred between stat rails — phone landscape and wide desktop. Null
+   * when the rails would be too narrow to read, which covers the whole tablet
+   * and portrait range; the caller then takes the stacked shape.
+   */
+  railedLayout(w, h, pad) {
+    const gap = clamp(Math.min(w, h) * 0.03, 6, 20);
+    const side = h - pad * 2;
+    const railW = (w - side - gap * 2) / 2;
+    if (side < 80 || railW < 118) return null;
+
+    const cardW = Math.min(railW - pad, 250);
+    const vgap = clamp(side * 0.03, 5, 14);
+    const badgeH = Math.min(clamp(side * 0.14, 34, 62), (side - vgap * (BADGE_COUNT - 1)) / BADGE_COUNT);
+    const badgeTop = pad + (side - (badgeH * BADGE_COUNT + vgap * (BADGE_COUNT - 1))) / 2;
+    const badgeX = (railW - cardW) / 2;
+    const badges = [];
+    for (let i = 0; i < BADGE_COUNT; i++) {
+      badges.push({ x: badgeX, y: badgeTop + i * (badgeH + vgap), w: cardW, h: badgeH });
+    }
+
+    const btnH = clamp(side * 0.13, 40, 58);
+    const payH = clamp(side * 0.17, 52, 78);
+    const colX = w - railW + (railW - cardW) / 2;
+    const colY = pad + (side - (btnH + payH + vgap)) / 2;
+
+    return this.finishLayout({
+      pad,
+      side,
+      gx: railW + gap,
+      gy: pad,
+      badges,
+      btn: { x: colX, y: colY, w: cardW, h: btnH },
+      pay: { x: colX, y: colY + btnH + vgap, w: cardW, h: payH },
+    });
+  }
+
+  /** Derived board fields shared by both arrangements. */
+  finishLayout(g) {
+    // Gap and cell ride the board, so a 296px phone stage and a 1200px desktop
+    // stage read as the same board at two scales.
+    g.gap = clamp(g.side * 0.026, 3, 14);
+    g.cell = (g.side - g.gap * (GRID_SIDE - 1)) / GRID_SIDE;
+    g.cx = g.gx + g.side / 2;
+    g.cy = g.gy + g.side / 2;
+    return g;
   }
 
   /** Top-left rect + side length for a tile index (0..24). */
@@ -791,15 +879,18 @@ export class MinesGame {
     };
   }
 
-  /** Tile index under a stage-space point, or -1. */
+  /**
+   * Tile index under a stage-space point, or -1. Gutters count as part of the
+   * nearest tile: a 5px gap is ~20% of the board area on a phone stage, and a
+   * tap that lands in one must not be silently dropped.
+   */
   tileAt(x, y) {
     const g = this.geom;
     if (!g) return -1;
+    if (x < g.gx || y < g.gy || x > g.gx + g.side || y > g.gy + g.side) return -1;
     const step = g.cell + g.gap;
-    const col = Math.floor((x - g.gx) / step);
-    const row = Math.floor((y - g.gy) / step);
-    if (col < 0 || col >= GRID_SIDE || row < 0 || row >= GRID_SIDE) return -1;
-    if (x > g.gx + col * step + g.cell || y > g.gy + row * step + g.cell) return -1;
+    const col = clamp(Math.floor((x - g.gx) / step), 0, GRID_SIDE - 1);
+    const row = clamp(Math.floor((y - g.gy) / step), 0, GRID_SIDE - 1);
     return row * GRID_SIDE + col;
   }
 
@@ -837,6 +928,15 @@ export class MinesGame {
       this.canvas.style.cursor = 'default';
       this.dirty = true;
     }
+  }
+
+  /**
+   * Touch and pen never fire pointerleave, so a tapped tile would stay lit for
+   * the rest of the round. A mouse keeps its hover until the pointer moves.
+   */
+  _onPointerUp(e) {
+    if (e && e.pointerType === 'mouse') return;
+    this._onPointerLeave();
   }
 
   _onPointerDown(e) {
@@ -964,6 +1064,20 @@ export class MinesGame {
   /* Painting                                                                    */
   /* -------------------------------------------------------------------------- */
 
+  /**
+   * Largest size <= `size` at which `text` fits `maxW`. Text width is linear in
+   * font size, so one measurement replaces a per-frame search loop.
+   */
+  fitSize(text, maxW, size, weight, family) {
+    const ctx = this.ctx;
+    if (!ctx || maxW <= 0) return size;
+    ctx.save();
+    ctx.font = `${weight} ${size}px ${family}`;
+    const measured = ctx.measureText(text).width;
+    ctx.restore();
+    return measured <= maxW ? size : Math.max(6, size * (maxW / measured));
+  }
+
   render(now) {
     const ctx = this.ctx;
     if (!ctx) return;
@@ -976,8 +1090,8 @@ export class MinesGame {
     T.paintStage(ctx, w, h, {
       stars: this.reduced ? null : this.stars,
       glow: this.state === 'lost' ? T.PALETTE.red : T.PALETTE.mint,
-      glowX: 0.5,
-      glowY: 0.5,
+      glowX: this.geom.cx / w,
+      glowY: this.geom.cy / h,
       glowStrength: 0.09 + this.flash * 0.09,
     });
 
@@ -1000,37 +1114,34 @@ export class MinesGame {
   }
 
   drawBadges() {
-    const g = this.geom;
     const gemsLeft = (TILE_COUNT - this.minesCount) - this.revealedGems;
-    const bw = (g.badgeRowW - 30) / 4;
+    const mult = this.currentMultiplier;
+    const items = [
+      ['Mines', String(this.minesCount), T.PALETTE.red],
+      ['Gems left', String(Math.max(0, gemsLeft)), T.PALETTE.greenSoft],
+      ['Multiplier', `${mult.toFixed(2)}x`, mult > 1 ? T.PALETTE.gold : T.PALETTE.textDim],
+      [
+        'Next tile',
+        `${this.getNextMultiplier().toFixed(2)}x`,
+        this.state === 'playing' ? T.PALETTE.mint : T.PALETTE.textDim,
+      ],
+    ];
 
-    this.drawBadge(0 * (bw + 10), bw, 'Mines', String(this.minesCount), T.PALETTE.red);
-    this.drawBadge(1 * (bw + 10), bw, 'Gems left', String(Math.max(0, gemsLeft)), T.PALETTE.greenSoft);
-    this.drawBadge(
-      2 * (bw + 10),
-      bw,
-      'Multiplier',
-      `${this.currentMultiplier.toFixed(2)}x`,
-      this.currentMultiplier > 1 ? T.PALETTE.gold : T.PALETTE.textDim
-    );
-    this.drawBadge(
-      3 * (bw + 10),
-      bw,
-      'Next tile',
-      `${this.getNextMultiplier().toFixed(2)}x`,
-      this.state === 'playing' ? T.PALETTE.mint : T.PALETTE.textDim
-    );
+    const badges = this.geom.badges;
+    for (let i = 0; i < badges.length; i++) {
+      this.drawBadge(badges[i], items[i][0], items[i][1], items[i][2]);
+    }
   }
 
-  drawBadge(offsetX, bw, label, value, tone) {
+  drawBadge(r, label, value, tone) {
     const ctx = this.ctx;
-    const g = this.geom;
-    const x = g.badgeX + offsetX;
-    const y = g.badgeY;
+    const inner = r.w - Math.min(14, r.w * 0.14);
+    const capSize = this.fitSize(label.toUpperCase(), inner, clamp(r.h * 0.2, 6.5, 11), 700, 'Inter, sans-serif');
+    const valSize = this.fitSize(value, inner, clamp(r.h * 0.4, 11, 22), 900, "Inter, 'Roboto Mono', monospace");
 
-    T.panel(ctx, x, y, bw, g.badgeH, { radius: 12, accent: tone });
-    T.caption(ctx, label, x + bw / 2, y + 17, { size: 9 });
-    T.heroText(ctx, value, x + bw / 2, y + 38, { size: 19, color: tone, blur: 14 });
+    T.panel(ctx, r.x, r.y, r.w, r.h, { radius: clamp(r.h * 0.24, 7, 14), accent: tone });
+    T.caption(ctx, label, r.x + r.w / 2, r.y + r.h * 0.31, { size: capSize });
+    T.heroText(ctx, value, r.x + r.w / 2, r.y + r.h * 0.69, { size: valSize, color: tone, blur: valSize * 0.75 });
   }
 
   drawGrid(now) {
@@ -1064,7 +1175,7 @@ export class MinesGame {
         ctx.translate(-cx, -cy);
       }
 
-      T.tile(ctx, r.x, r.y, s, s, { state, accent, radius: Math.max(7, s * 0.2) });
+      T.tile(ctx, r.x, r.y, s, s, { state, accent, radius: clamp(s * 0.2, 3, 24) });
 
       if (shown) {
         const cx = r.x + s / 2;
@@ -1087,13 +1198,15 @@ export class MinesGame {
 
     if (this.state === 'idle') {
       const g = this.geom;
-      const pw = Math.min(250, g.side);
-      const px = g.gx + (g.side - pw) / 2;
-      const py = g.gy + g.side / 2 - 19;
+      const pw = Math.min(g.side * 0.86, 260);
+      const ph = clamp(g.cell * 0.9, 26, 46);
+      const px = g.cx - pw / 2;
+      const py = g.cy - ph / 2;
+      const size = this.fitSize('AWAITING ROUND', pw - 18, clamp(ph * 0.3, 7, 12), 700, 'Inter, sans-serif');
       ctx.save();
       ctx.globalAlpha = 0.92;
-      T.panel(ctx, px, py, pw, 38, { radius: 12 });
-      T.caption(ctx, 'Awaiting round', px + pw / 2, py + 20, { size: 10, color: T.PALETTE.textDim });
+      T.panel(ctx, px, py, pw, ph, { radius: clamp(ph * 0.3, 8, 14) });
+      T.caption(ctx, 'Awaiting round', g.cx, py + ph / 2, { size, color: T.PALETTE.textDim });
       ctx.restore();
     }
   }
@@ -1268,36 +1381,45 @@ export class MinesGame {
     const g = this.geom;
     const live = this.state === 'playing';
     const b = g.btn;
+    // The long label needs ~130px to breathe; below that the chip keeps its full
+    // tap area and drops to the short form rather than shrinking the type.
+    const label = b.w >= 132 ? 'RANDOM PICK' : 'PICK';
+    const labelSize = this.fitSize(label, b.w - 14, clamp(b.h * 0.34, 9, 15), 800, 'Inter, sans-serif');
+    const radius = clamp(b.h * 0.26, 8, 14);
 
     if (live) {
       T.chip(ctx, b.x, b.y, b.w, b.h, {
         color: T.PALETTE.mint,
-        label: 'RANDOM PICK',
-        radius: 11,
+        label,
+        radius,
         lift: this.hoverBtn ? 1 : 0,
-        font: '800 12px Inter, sans-serif',
+        font: `800 ${labelSize}px Inter, sans-serif`,
       });
     } else {
-      T.chip(ctx, b.x, b.y, b.w, b.h, { color: T.PALETTE.slate, radius: 11 });
-      T.caption(ctx, 'Random pick', b.x + b.w / 2, b.y + b.h / 2, { size: 11, color: T.PALETTE.textFaint });
+      T.chip(ctx, b.x, b.y, b.w, b.h, { color: T.PALETTE.slate, radius });
+      T.caption(ctx, label, b.x + b.w / 2, b.y + b.h / 2, { size: labelSize, color: T.PALETTE.textFaint });
     }
 
     const p = g.pay;
     const banked = live && this.revealedGems > 0;
     const tone = banked ? T.PALETTE.mint : T.PALETTE.textDim;
-    T.panel(ctx, p.x, p.y, p.w, p.h, { radius: 12, accent: banked ? T.PALETTE.mint : null });
-    T.caption(ctx, 'Potential payout', p.x + p.w / 2, p.y + 14, { size: 9 });
+    const amount = `$${(banked ? this.payout : 0).toFixed(2)}`;
+    const capSize = this.fitSize('POTENTIAL PAYOUT', p.w - 12, clamp(p.h * 0.2, 6.5, 11), 700, 'Inter, sans-serif');
+    const amtSize = this.fitSize(amount, p.w - 16, clamp(p.h * 0.36, 11, 20), 800, MONO);
+
+    T.panel(ctx, p.x, p.y, p.w, p.h, { radius: clamp(p.h * 0.24, 8, 14), accent: banked ? T.PALETTE.mint : null });
+    T.caption(ctx, 'Potential payout', p.x + p.w / 2, p.y + p.h * 0.3, { size: capSize });
 
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `800 16px ${MONO}`;
+    ctx.font = `800 ${amtSize}px ${MONO}`;
     ctx.fillStyle = tone;
     if (banked) {
       ctx.shadowColor = T.PALETTE.mint;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = amtSize * 0.75;
     }
-    ctx.fillText(`$${(banked ? this.payout : 0).toFixed(2)}`, p.x + p.w / 2, p.y + 32);
+    ctx.fillText(amount, p.x + p.w / 2, p.y + p.h * 0.69);
     ctx.restore();
   }
 
@@ -1319,29 +1441,31 @@ export class MinesGame {
 
     const ctx = this.ctx;
     const g = this.geom;
-    const bw = Math.min(292, this.width - g.pad * 2);
-    const bh = 104;
-    const bx = (this.width - bw) / 2;
-    const by = g.gy + g.side / 2 - bh / 2;
+    const bw = Math.min(this.width - g.pad * 2, Math.max(g.side * 0.94, 180));
+    const bh = clamp(bw * 0.36, 64, 118);
+    const bx = g.cx - bw / 2;
+    const by = g.cy - bh / 2;
     const won = this.bannerWin;
     const tone = won ? (this.currentMultiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint) : T.PALETTE.red;
+    const hero = won ? `${this.currentMultiplier.toFixed(2)}x` : 'BUSTED';
+    const sub = won
+      ? `$${this.payout.toFixed(2)} \u00b7 ${this.revealedGems} gems`
+      : `${this.revealedGems} gems banked`;
+    const heroSize = this.fitSize(
+      hero,
+      bw - 28,
+      clamp(bh * (won ? 0.36 : 0.3), 15, 40),
+      900,
+      "Inter, 'Roboto Mono', monospace"
+    );
+    const subSize = this.fitSize(sub.toUpperCase(), bw - 22, clamp(bh * 0.13, 7, 11), 700, 'Inter, sans-serif');
 
     ctx.save();
     ctx.globalAlpha = fade;
-    T.panel(ctx, bx, by, bw, bh, { radius: 16, accent: tone });
-    T.caption(ctx, won ? 'Cashed out' : 'Mine hit', this.width / 2, by + 23, { size: 10, color: tone });
-    T.heroText(ctx, won ? `${this.currentMultiplier.toFixed(2)}x` : 'BUSTED', this.width / 2, by + 56, {
-      size: won ? 36 : 30,
-      color: tone,
-      blur: 26,
-    });
-    T.caption(
-      ctx,
-      won ? `$${this.payout.toFixed(2)} \u00b7 ${this.revealedGems} gems` : `${this.revealedGems} gems banked`,
-      this.width / 2,
-      by + 85,
-      { size: 9.5 }
-    );
+    T.panel(ctx, bx, by, bw, bh, { radius: clamp(bh * 0.16, 10, 18), accent: tone });
+    T.caption(ctx, won ? 'Cashed out' : 'Mine hit', g.cx, by + bh * 0.22, { size: clamp(bh * 0.14, 7, 11), color: tone });
+    T.heroText(ctx, hero, g.cx, by + bh * 0.54, { size: heroSize, color: tone, blur: heroSize * 0.72 });
+    T.caption(ctx, sub, g.cx, by + bh * 0.82, { size: subSize });
     ctx.restore();
   }
 
@@ -1356,6 +1480,8 @@ export class MinesGame {
       this.canvas.removeEventListener('pointermove', this._onPointerMove);
       this.canvas.removeEventListener('pointerleave', this._onPointerLeave);
       this.canvas.removeEventListener('pointerdown', this._onPointerDown);
+      this.canvas.removeEventListener('pointerup', this._onPointerUp);
+      this.canvas.removeEventListener('pointercancel', this._onPointerLeave);
     }
     if (typeof window !== 'undefined') window.removeEventListener('resize', this.resize);
     if (this._ro) { this._ro.disconnect(); this._ro = null; }

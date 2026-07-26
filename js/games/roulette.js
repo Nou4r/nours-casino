@@ -64,8 +64,8 @@ const COLOR_STYLES = {
   },
 };
 
-/** Vertical breathing room around the reel band so glows are not clipped. */
-const BAND_MARGIN = 26;
+/** Upper bound on the breathing room around the reel band so glows are not clipped. */
+const BAND_MARGIN_MAX = 28;
 
 /**
  * Calculate provably fair roulette outcome slot (0-14).
@@ -136,6 +136,10 @@ export class RouletteGame {
     this.canvas = null;
     this.ctx = null;
     this.container = null;
+    // One bound reference so the ResizeObserver, the window listener and
+    // destroy() all talk about the same function.
+    this.resize = this.resize.bind(this);
+    this._ro = null;
 
     /* ---- presentation state (never read by app.js) ---- */
     this._dpr = 1;
@@ -155,13 +159,17 @@ export class RouletteGame {
     this._bandGrads = null;
     this._ptrGrads = null;
     this.stars = null;
+    this._m = null;           // layout metrics — recomputed in resize(), never per frame
+    this._mq = null;
+    this._onMotion = null;
 
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       try {
         const rm = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this._mq = rm;
         this._prefersReduced = rm.matches;
         // styles.css only kills CSS animation; canvas loops have to opt out themselves.
-        const onChange = (e) => {
+        this._onMotion = (e) => {
           this._prefersReduced = e.matches;
           if (e.matches) {
             this._stopAmbient();
@@ -170,8 +178,8 @@ export class RouletteGame {
             this._startAmbient();
           }
         };
-        if (typeof rm.addEventListener === 'function') rm.addEventListener('change', onChange);
-        else if (typeof rm.addListener === 'function') rm.addListener(onChange);
+        if (typeof rm.addEventListener === 'function') rm.addEventListener('change', this._onMotion);
+        else if (typeof rm.addListener === 'function') rm.addListener(this._onMotion);
       } catch { /* matchMedia unsupported — keep motion on */ }
     }
     if (typeof T.createStarfield === 'function') this.stars = T.createStarfield(46, 0x5a17);
@@ -211,8 +219,14 @@ export class RouletteGame {
     this.ctx = this.canvas.getContext('2d');
     this.resize();
 
+    // The stage host is display:none while another game is up, so a window
+    // resize alone never reports its real size — observe the host directly.
+    if (typeof ResizeObserver !== 'undefined') {
+      this._ro = new ResizeObserver(this.resize);
+      this._ro.observe(this.container || this.canvas.parentElement || this.canvas);
+    }
     if (typeof window !== 'undefined') {
-      window.addEventListener('resize', () => this.resize());
+      window.addEventListener('resize', this.resize);
     }
   }
 
@@ -224,11 +238,17 @@ export class RouletteGame {
     const rect = this.container.getBoundingClientRect();
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
-    const width = rect.width || 600;
-    const height = rect.height || 140;
+    const width = rect.width;
+    const height = rect.height;
+    // A hidden pane measures 0. Falling back to a default here would size the
+    // canvas to that default and then feed it back as the host's max-content
+    // width, pushing the stage past a phone viewport. Keep the last good size:
+    // the ResizeObserver above (and enterGame's rAF resize) fire again once the
+    // pane is visible.
+    if (!(width > 0) || !(height > 0)) return;
 
-    this.canvas.width = width * dpr;
-    this.canvas.height = height * dpr;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
     this.width = width;
     this.height = height;
     this._dpr = dpr;
@@ -238,9 +258,7 @@ export class RouletteGame {
       this.ctx.scale(dpr, dpr);
     }
 
-    // Dynamic slot sizing based on container width
-    this.slotWidth = Math.max(65, Math.min(95, Math.floor(width / 7)));
-    this.slotGap = 6;
+    this._computeLayout();
 
     // Geometry-derived caches are invalid at a new size.
     this._slotGrads = null;
@@ -248,6 +266,88 @@ export class RouletteGame {
     this._ptrGrads = null;
 
     this.render();
+  }
+
+  /**
+   * Derive every geometry constant from the live canvas size. Runs on resize
+   * only — the render loop must never do layout maths per frame.
+   *
+   * A horizontal strip is the one stage shape that fights a portrait phone, so
+   * card size is driven by the height while the *number* of visible cards is
+   * driven by the width. A 296px phone therefore shows ~3.5 full-size slots
+   * instead of 11 illegible slivers, and an 800x200 landscape phone fills its
+   * width with ~9.
+   */
+  _computeLayout() {
+    const w = this.width;
+    const h = this.height;
+    const cl = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+    const outer = cl(Math.min(w, h) * 0.035, 4, 16);
+    const labelSize = cl(Math.min(w, h) / 26, 9, 13);
+    const labelRow = labelSize * 1.55;
+
+    // Below ~250px tall there is no room for a payout hero under the reel, so
+    // the band claims that budget and the result rides the status label instead.
+    const compact = h < 250;
+    const heroRow = compact ? 0 : cl(h * 0.26, 64, 132);
+
+    // Solve card height against the vertical budget rather than guessing at it:
+    // bandH = 1.26*slotH and each pointer overhang is <= 0.115*bandH + nudge, so
+    // the band+pointer footprint is 1.23*bandH + 2*nudge.
+    const nudge = cl(h * 0.022, 2, 7);
+    const avail = h - outer * 2 - labelRow - heroRow;
+    const slotHCap = Math.max(28, (avail - nudge * 2) / (1.23 * 1.26));
+    const slotH = cl(compact ? h * 0.62 : h * 0.34, 34, Math.min(126, slotHCap));
+
+    // Cards stay portrait. The width cap keeps ~3 of them on the narrowest
+    // stage — fewer than that and the strip stops reading as a moving reel.
+    const slotW = Math.max(34, Math.min(slotH * 0.78, w / 3.3));
+    const slotGap = cl(slotW * 0.075, 3, 8);
+    const pitch = slotW + slotGap;
+
+    const bandPad = cl(slotH * 0.13, 5, 16);
+    const bandH = slotH + bandPad * 2;
+
+    const ptrTri = cl(bandH * 0.1, 5.5, 12);
+    const ptrOver = nudge + ptrTri * 1.15;      // beam overshoot + cap triangle
+
+    // Band rides above centre when a hero follows it, dead centre when it does
+    // not; the clamps keep both pointer caps and the status label on-canvas.
+    let bandY = h * (compact ? 0.5 : 0.44) - bandH / 2;
+    bandY = Math.max(bandY, outer + labelRow + ptrOver);
+    bandY = Math.min(bandY, h - outer - ptrOver - bandH);
+    // Degenerate stage (band taller than the whole budget): centre and let the
+    // label fall off rather than drawing above the top edge.
+    if (bandY < 0) bandY = Math.max(0, (h - bandH) / 2);
+    bandY = Math.round(bandY);
+
+    const belowRoom = h - (bandY + bandH + ptrOver) - outer;
+    const heroShown = !compact && belowRoom >= 54;
+    const trackX = cl(w * 0.02, 3, 14);
+    // The band is blitted as one rectangle, margins included, so its glow
+    // headroom cannot exceed the room actually left above and below it.
+    const bandMargin = Math.max(0, Math.min(cl(slotH * 0.26, 10, BAND_MARGIN_MAX), bandY, h - bandY - bandH));
+
+    this.slotWidth = slotW;
+    this.slotGap = slotGap;
+    this._radius = cl(slotW * 0.15, 4, 13);
+
+    this._m = {
+      compact, labelSize, slotH, slotW, slotGap, pitch,
+      bandPad, bandH, bandY,
+      bandMargin,
+      nudge, ptrTri, ptrOver,
+      ptrAura: cl(pitch * 0.26, 9, 28),
+      ptrBeam: cl(bandH * 0.02, 1.6, 3.4),
+      trackX,
+      trackW: Math.max(40, w - trackX * 2),
+      trackR: cl(bandH * 0.13, 8, 18),
+      labelY: bandY - ptrOver - labelSize * 0.6,
+      heroShown,
+      heroSize: heroShown ? cl(belowRoom * 0.42, 18, 56) : 0,
+      heroY: bandY + bandH + ptrOver + belowRoom * 0.44,
+    };
   }
 
   /**
@@ -532,10 +632,11 @@ export class RouletteGame {
    * Render horizontal sliding strip to Canvas
    */
   render() {
-    if (!this.ctx || !this.width || !this.height) return;
+    if (!this.ctx || !this.width || !this.height || !this._m) return;
     const ctx = this.ctx;
     const w = this.width;
     const h = this.height;
+    const m = this._m;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     /* --- reel speed (drives the motion blur) --- */
@@ -544,24 +645,16 @@ export class RouletteGame {
     this._prevRenderT = now;
     this._prevRenderOff = this.currentOffset;
 
-    const pitch = this.slotWidth + this.slotGap;
+    const pitch = m.pitch;
     const perFrame = dt > 0 ? (dOff / dt) * 16.67 : 0;
-    const targetBlur = Math.min(9, perFrame * pitch * 0.14);
+    // Smear is capped in card widths, not pixels: a 78px phone card cannot
+    // absorb the same 9px blur a 100px desktop card can.
+    const targetBlur = Math.min(pitch * 0.09, perFrame * pitch * 0.14);
     this._blurPx = this.spinning ? Math.max(targetBlur, this._blurPx * 0.6) : 0;
 
-    /* --- layout --- */
-    const compact = h < 200;
-    const slotH = compact
-      ? Math.max(54, Math.min(92, h - 34))
-      : Math.max(78, Math.min(122, h * 0.30));
-    const bandPad = compact ? 9 : 15;
-    const bandH = slotH + bandPad * 2;
-    const bandY = Math.round((compact ? h * 0.5 : h * 0.44) - bandH / 2);
-    const trackX = compact ? 2 : Math.max(4, w * 0.02);
-    const trackW = Math.max(40, w - trackX * 2);
+    /* --- layout (solved in resize; read only here) --- */
+    const { bandH, bandY, bandPad, bandMargin, slotH, trackX, trackW, trackR } = m;
     const centerX = w / 2;
-
-    this._radius = Math.max(7, Math.min(13, this.slotWidth * 0.15));
 
     /* --- backdrop --- */
     const res = this._result;
@@ -583,17 +676,17 @@ export class RouletteGame {
     this._bloom(ctx, w * 0.82, bandY + bandH * 0.5, Math.max(w, h) * 0.42, T.PALETTE.greenDeep, 0.07);
 
     /* --- recessed track behind the reel --- */
-    T.panel(ctx, trackX, bandY, trackW, bandH, { radius: 16, accent });
+    T.panel(ctx, trackX, bandY, trackW, bandH, { radius: trackR, accent });
 
     /* --- reel band, drawn offscreen so the ends can be alpha-masked --- */
-    const offH = bandH + BAND_MARGIN * 2;
-    const offY = bandY - BAND_MARGIN;
+    const offH = bandH + bandMargin * 2;
+    const offY = bandY - bandMargin;
     this._ensureOffscreen(w, offH);
 
     if (this._offCtx) {
       const octx = this._offCtx;
       octx.clearRect(0, 0, w, offH);
-      this._drawSlots(octx, w, BAND_MARGIN + bandPad, slotH, pitch, centerX, now);
+      this._drawSlots(octx, w, bandMargin + bandPad, slotH, pitch, centerX, now);
       this._maskBand(octx, w, offH, trackX, trackW);
       ctx.drawImage(this._off, 0, offY, w, offH);
     }
@@ -602,7 +695,7 @@ export class RouletteGame {
     ctx.save();
     ctx.strokeStyle = T.alpha(accent, 0.16 + 0.2 * flash);
     ctx.lineWidth = 1.5;
-    T.roundRect(ctx, trackX + 0.75, bandY + 0.75, trackW - 1.5, bandH - 1.5, 16);
+    T.roundRect(ctx, trackX + 0.75, bandY + 0.75, trackW - 1.5, bandH - 1.5, trackR);
     ctx.stroke();
     ctx.restore();
 
@@ -610,7 +703,7 @@ export class RouletteGame {
     this._drawPointer(ctx, centerX, bandY, bandH, now);
 
     /* --- captions & payout hero --- */
-    this._drawReadout(ctx, w, h, centerX, bandY, bandH, compact, settleT);
+    this._drawReadout(ctx, centerX, settleT);
   }
 
   /** Soft radial bloom. Local helper — theme.paintStage only carries one glow. */
@@ -769,6 +862,9 @@ export class RouletteGame {
   _drawSlot(octx, slot, style, x, y, sw, sh, scale, glow, dim) {
     const g = this._slotGrads;
     const r = this._radius;
+    // Bevel and bloom widths track the card, otherwise a 1.75px rim reads as a
+    // fat border on a phone card and a hairline on a desktop one.
+    const bev = Math.max(1.25, r * 0.16);
 
     octx.save();
     octx.translate(x + sw / 2, y + sh / 2);
@@ -779,12 +875,12 @@ export class RouletteGame {
     octx.save();
     if (glow > 0.01) {
       octx.shadowColor = T.alpha(style.glow, Math.min(0.85, 0.4 + 0.45 * glow));
-      octx.shadowBlur = 12 + 26 * Math.min(1.4, glow);
+      octx.shadowBlur = sh * 0.1 + sh * 0.21 * Math.min(1.4, glow);
       octx.shadowOffsetY = 0;
     } else {
       octx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-      octx.shadowBlur = 9;
-      octx.shadowOffsetY = 4;
+      octx.shadowBlur = Math.max(4, sh * 0.073);
+      octx.shadowOffsetY = Math.max(2, sh * 0.032);
     }
     octx.fillStyle = g[slot.color];
     T.roundRect(octx, 0, 0, sw, sh, r);
@@ -808,7 +904,7 @@ export class RouletteGame {
     T.roundRect(octx, 0.5, 0.5, sw - 1, sh - 1, r);
     octx.stroke();
     octx.strokeStyle = style.rim;
-    T.roundRect(octx, 1.75, 1.75, sw - 3.5, sh - 3.5, Math.max(2, r - 1.5));
+    T.roundRect(octx, bev, bev, sw - bev * 2, sh - bev * 2, Math.max(1.5, r - bev));
     octx.stroke();
     octx.restore();
 
@@ -817,18 +913,21 @@ export class RouletteGame {
     octx.save();
     octx.textAlign = 'center';
     octx.textBaseline = 'middle';
-    octx.font = `800 ${Math.round(sh * 0.36)}px Inter, 'Roboto Mono', monospace`;
+    // Cap the numeral on width too: a stage narrow enough to clamp card width
+    // would otherwise push a two-digit number past the card edge.
+    const numSize = Math.max(9, Math.round(Math.min(sh * 0.36, sw * 0.46)));
+    octx.font = `800 ${numSize}px Inter, 'Roboto Mono', monospace`;
     octx.fillStyle = style.fg;
     if (slot.color !== 'green') {
       octx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-      octx.shadowBlur = 6;
-      octx.shadowOffsetY = 1;
+      octx.shadowBlur = Math.max(3, sh * 0.055);
+      octx.shadowOffsetY = Math.max(1, sh * 0.009);
     }
     octx.fillText(String(slot.number), cx, sh * 0.44);
     octx.restore();
 
     T.caption(octx, `${slot.multiplier}x`, cx, sh * 0.78, {
-      size: Math.max(9, Math.round(sh * 0.145)),
+      size: Math.max(8, Math.round(Math.min(sh * 0.15, sw * 0.2))),
       color: style.sub,
       weight: 800,
       spacing: false,
@@ -851,9 +950,12 @@ export class RouletteGame {
    * ends so slots dissolve into the track instead of hitting a hard edge.
    */
   _maskBand(octx, ow, oh, trackX, trackW) {
-    const top = BAND_MARGIN;
-    const bottom = oh - BAND_MARGIN;
-    const fadeW = Math.max(56, Math.min(190, trackW * 0.24));
+    const m = this._m;
+    const top = m.bandMargin;
+    const bottom = oh - m.bandMargin;
+    // Fade about a card and a half at each end. A fixed 56-190px fade would
+    // swallow most of a 296px stage and leave barely one slot readable.
+    const fadeW = Math.max(16, Math.min(trackW * 0.2, m.pitch * 1.6));
     const gr = this._ensureBandGrads(octx, ow, oh, top, bottom, fadeW);
 
     octx.save();
@@ -879,10 +981,10 @@ export class RouletteGame {
 
   /** Cache the pointer gradients (aura column + beam). */
   _ensurePointerGrads(ctx, cx, top, bottom) {
-    const key = `${Math.round(cx)}|${Math.round(top)}|${Math.round(bottom)}`;
+    const halfAura = this._m.ptrAura;
+    const key = `${Math.round(cx)}|${Math.round(top)}|${Math.round(bottom)}|${Math.round(halfAura)}`;
     if (this._ptrGrads && this._ptrGrads.key === key) return this._ptrGrads;
 
-    const halfAura = 24;
     const aura = ctx.createLinearGradient(cx - halfAura, 0, cx + halfAura, 0);
     aura.addColorStop(0, T.alpha(T.PALETTE.gold, 0));
     aura.addColorStop(0.5, T.alpha(T.PALETTE.gold, 0.2));
@@ -899,13 +1001,15 @@ export class RouletteGame {
 
   /** Gold pointer: down-triangle, glowing beam, matching up-triangle. */
   _drawPointer(ctx, cx, bandY, bandH, now) {
-    const tri = Math.max(7, Math.min(11, bandH * 0.1));
+    const m = this._m;
+    const tri = m.ptrTri;
     const cap = tri * 1.15 + 2;
     // Keep the caps on-canvas on short stages instead of clipping them away.
-    const top = bandY - Math.min(7, Math.max(0, bandY - cap));
-    const bottom = bandY + bandH + Math.min(7, Math.max(0, this.height - (bandY + bandH) - cap));
+    const top = bandY - Math.min(m.nudge, Math.max(0, bandY - cap));
+    const bottom = bandY + bandH + Math.min(m.nudge, Math.max(0, this.height - (bandY + bandH) - cap));
     const gp = this._ensurePointerGrads(ctx, cx, top, bottom);
     const pulse = this._prefersReduced ? 1 : 0.78 + 0.22 * Math.sin(now * 0.0034);
+    const nick = tri * 0.15;   // how far each cap tip bites back into the beam
 
     ctx.save();
 
@@ -917,25 +1021,25 @@ export class RouletteGame {
 
     // Beam
     ctx.shadowColor = T.alpha(T.PALETTE.gold, 0.85 * pulse);
-    ctx.shadowBlur = 14 * pulse;
+    ctx.shadowBlur = tri * 1.25 * pulse;
     ctx.fillStyle = gp.beam;
-    T.roundRect(ctx, cx - 1.25, top, 2.5, bottom - top, 1.25);
+    T.roundRect(ctx, cx - m.ptrBeam / 2, top, m.ptrBeam, bottom - top, m.ptrBeam / 2);
     ctx.fill();
 
     // Caps
     ctx.fillStyle = T.PALETTE.gold;
-    ctx.shadowBlur = 12 * pulse;
+    ctx.shadowBlur = tri * 1.1 * pulse;
     ctx.beginPath();
     ctx.moveTo(cx - tri, top - tri * 1.15);
     ctx.lineTo(cx + tri, top - tri * 1.15);
-    ctx.lineTo(cx, top + 1.5);
+    ctx.lineTo(cx, top + nick);
     ctx.closePath();
     ctx.fill();
 
     ctx.beginPath();
     ctx.moveTo(cx - tri, bottom + tri * 1.15);
     ctx.lineTo(cx + tri, bottom + tri * 1.15);
-    ctx.lineTo(cx, bottom - 1.5);
+    ctx.lineTo(cx, bottom - nick);
     ctx.closePath();
     ctx.fill();
 
@@ -959,12 +1063,12 @@ export class RouletteGame {
   }
 
   /** Status caption above the reel and the payout hero below it. */
-  _drawReadout(ctx, w, h, cx, bandY, bandH, compact, settleT) {
+  _drawReadout(ctx, cx, settleT) {
+    const m = this._m;
     const res = this._result;
-    // Sits clear of the pointer's upper cap (bandY - 7 - tri*1.15).
-    const labelY = bandY - (compact ? 13 : 34);
 
-    if (labelY > 10) {
+    // labelY is solved in _computeLayout so it always clears the pointer's cap.
+    if (m.labelY - m.labelSize * 0.5 > 1) {
       let text = 'Place your bet';
       let color = T.PALETTE.textFaint;
       if (this.spinning) {
@@ -974,16 +1078,14 @@ export class RouletteGame {
         text = `${res.color} ${res.number} · ${res.multiplier}x`;
         color = res.color === 'green' ? T.PALETTE.mint : res.color === 'red' ? T.PALETTE.red : T.PALETTE.textDim;
       }
-      this._label(ctx, text, cx, labelY, { size: compact ? 10 : 11.5, color });
+      this._label(ctx, text, cx, m.labelY, { size: m.labelSize, color });
     }
 
-    if (compact || !res) return;
+    // A short stage spends its whole budget on the reel; the label above
+    // carries the result there instead.
+    if (!m.heroShown || !res) return;
 
-    const below = h - (bandY + bandH);
-    if (below < 74) return;
-
-    const size = Math.max(34, Math.min(58, below * 0.42));
-    const heroY = bandY + bandH + below * 0.44;
+    const size = m.heroSize;
     const win = res.payout > 0;
     const heroColor = win
       ? (res.multiplier >= 14 ? T.PALETTE.gold : T.PALETTE.mint)
@@ -991,20 +1093,23 @@ export class RouletteGame {
 
     // Entry lift: the payout eases up into place over ~350ms.
     const ease = this._prefersReduced ? 1 : Math.min(1, settleT / 0.35);
-    const lift = (1 - ease * ease) * 14;
+    const lift = (1 - ease * ease) * size * 0.25;
 
     ctx.save();
     ctx.globalAlpha = 0.15 + 0.85 * ease;
     const heroText = res.totalBet > 0
       ? `$${res.payout.toFixed(2)}`
       : `${res.multiplier.toFixed(2)}x`;
-    T.heroText(ctx, heroText, cx, heroY + lift, { size, color: heroColor, blur: 26 });
+    T.heroText(ctx, heroText, cx, m.heroY + lift, { size, color: heroColor, blur: size * 0.46 });
+    // Offset by the hero's descender *plus* the caption's own height: a flat
+    // 0.72em gap was tuned for the 56px desktop hero and collides at 30px.
+    const subSize = Math.max(8, Math.min(11, size * 0.24));
     this._label(
       ctx,
       res.totalBet > 0 ? (win ? 'Payout' : 'No win') : 'Result',
       cx,
-      heroY + lift + size * 0.72,
-      { size: 11, color: T.PALETTE.textFaint },
+      m.heroY + lift + size * 0.62 + subSize * 0.9,
+      { size: subSize, color: T.PALETTE.textFaint },
     );
     ctx.restore();
   }
@@ -1012,9 +1117,33 @@ export class RouletteGame {
   /** Letterspaced caption — theme.caption uppercases but does not track. */
   _label(ctx, text, x, y, opts = {}) {
     ctx.save();
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '2.2px';
+    // Tracking scales with the type size; a fixed 2.2px shreds a 9px caption.
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${((opts.size || 12) * 0.19).toFixed(2)}px`;
     T.caption(ctx, text, x, y, opts);
     ctx.restore();
+  }
+
+  /**
+   * Tear down every listener this instance owns and settle a spin still in
+   * flight: a stake awaiting an orphaned promise is never refunded (AGENTS §5).
+   */
+  destroy() {
+    if (this.animId) {
+      if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(this.animId);
+      else if (typeof clearTimeout !== 'undefined') clearTimeout(this.animId);
+      this.animId = null;
+    }
+    this.spinning = false;
+    this._abortSpin(new Error('Spin cancelled by destroy'));
+    this._stopAmbient();
+    if (this._ro) { this._ro.disconnect(); this._ro = null; }
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this.resize);
+    if (this._mq && this._onMotion) {
+      if (typeof this._mq.removeEventListener === 'function') this._mq.removeEventListener('change', this._onMotion);
+      else if (typeof this._mq.removeListener === 'function') this._mq.removeListener(this._onMotion);
+      this._mq = null;
+      this._onMotion = null;
+    }
   }
 }
 

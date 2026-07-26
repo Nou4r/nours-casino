@@ -121,8 +121,22 @@ export async function calculateKenoOutcome(
 /* Stage constants                                                             */
 /* -------------------------------------------------------------------------- */
 
-const GRID_COLS = 8;
-const GRID_ROWS = 5;
+/**
+ * Candidate grid shapes as [cols, rows]. Exact factor pairs of 40 only — a ragged
+ * final row reads as a bug on a number board. `computeGeometry` keeps whichever
+ * pair yields the largest tile for the live stage, so a square phone lands on 8x5
+ * and an 800x200 landscape strip lands on 20x2 instead of shrinking to nothing.
+ */
+const LAYOUTS = [[4, 10], [5, 8], [8, 5], [10, 4], [20, 2]];
+
+/** Gap as a fraction of tile size, so the board breathes identically at every scale. */
+const GAP_RATIO = 0.14;
+
+/** Below this many CSS px a tile stops being a comfortable thumb target. */
+const MIN_TAP = 28;
+
+/** Narrowest payout chip that still holds a "3.80x" label; below it, tiers are trimmed. */
+const MIN_CHIP = 30;
 
 /** Tile pop duration after a number is drawn, seconds. */
 const POP_SEC = 0.32;
@@ -130,7 +144,6 @@ const POP_SEC = 0.32;
 const BANNER_MS = 1900;
 
 const MONO = "'Roboto Mono', monospace";
-const SANS = 'Inter, sans-serif';
 
 /** Burst palette for a matched number. */
 const HIT_COLORS = [T.PALETTE.gold, T.PALETTE.mint, T.PALETTE.white, T.PALETTE.greenSoft, T.PALETTE.orange];
@@ -144,6 +157,30 @@ function multLabel(m) {
   if (m >= 100) return String(Math.round(m));
   if (Number.isInteger(m)) return String(m);
   return m.toFixed(m >= 10 ? 1 : 2);
+}
+
+/**
+ * Largest square tile that fits `areaW` x `areaH` across every candidate grid shape.
+ * @returns {{cols:number, rows:number, gap:number, cell:number}}
+ */
+function fitGrid(areaW, areaH) {
+  let pick = LAYOUTS[0];
+  let guess = 0;
+  for (const [cols, rows] of LAYOUTS) {
+    // The gap is a fraction of the tile, so the tile solves directly instead of iterating.
+    const c = Math.min(
+      areaW / (cols + GAP_RATIO * (cols - 1)),
+      areaH / (rows + GAP_RATIO * (rows - 1))
+    );
+    if (c > guess) { guess = c; pick = [cols, rows]; }
+  }
+  const [cols, rows] = pick;
+  const gap = Math.max(2, Math.round(guess * GAP_RATIO));
+  const cell = Math.max(6, Math.min(
+    (areaW - gap * (cols - 1)) / cols,
+    (areaH - gap * (rows - 1)) / rows
+  ));
+  return { cols, rows, gap, cell };
 }
 
 export class KenoGame {
@@ -241,11 +278,13 @@ export class KenoGame {
     this._wasHidden = false;
     this._ro = null;
     this._mq = null;
+    this._sizedDpr = 0;
 
     this.resize = this.resize.bind(this);
     this._onFrame = this._onFrame.bind(this);
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerLeave = this._onPointerLeave.bind(this);
+    this._onPointerUp = this._onPointerUp.bind(this);
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onMotionChange = this._onMotionChange.bind(this);
 
@@ -574,19 +613,21 @@ export class KenoGame {
     const r = this.tileRect(tileNum);
     const cx = r.x + r.s / 2;
     const cy = r.y + r.s / 2;
+    // Burst scales with the tile — a desktop-sized spray blankets a phone board.
+    const k = clamp(r.s / 70, 0.45, 1.25);
 
     this.rings.push({ x: cx, y: cy, r: r.s * 0.35, max: r.s * 1.5, life: 1, color: T.PALETTE.gold });
 
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.3;
-      const speed = 60 + Math.random() * 170;
+      const speed = (60 + Math.random() * 170) * k;
       this.particles.push({
         x: cx,
         y: cy,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 30,
+        vy: Math.sin(angle) * speed - 30 * k,
         color: HIT_COLORS[i % HIT_COLORS.length],
-        size: 1.6 + Math.random() * 2.4,
+        size: (1.6 + Math.random() * 2.4) * k,
         life: 1,
         decay: 1.4 + Math.random() * 1.1
       });
@@ -634,6 +675,9 @@ export class KenoGame {
 
     this.canvas.addEventListener('pointermove', this._onPointerMove);
     this.canvas.addEventListener('pointerleave', this._onPointerLeave);
+    // Touch never fires pointerleave, so without these a tapped tile stays hovered forever.
+    this.canvas.addEventListener('pointerup', this._onPointerUp);
+    this.canvas.addEventListener('pointercancel', this._onPointerLeave);
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -651,12 +695,20 @@ export class KenoGame {
     if (!this.canvas) return;
     const host = this.container || this.canvas.parentElement;
     const rect = host && typeof host.getBoundingClientRect === 'function' ? host.getBoundingClientRect() : null;
-    const w = Math.max(320, Math.round(rect && rect.width ? rect.width : 900));
-    const h = Math.max(260, Math.round(rect && rect.height ? rect.height : 620));
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const w = Math.round(rect ? rect.width : 0);
+    const h = Math.round(rect ? rect.height : 0);
+    // A hidden pane measures 0. Sizing to a fallback would make the canvas the widest
+    // thing in the column and push the layout past the viewport, so keep the last good
+    // size — the ResizeObserver (and enterGame's rAF) fires again once the pane shows.
+    if (w <= 0 || h <= 0) return;
+
+    // Cap DPR at 2: a 3x phone triples fill cost for no visible gain at this stage size.
+    const dpr = clamp((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 1, 2);
+    if (w === this.width && h === this.height && dpr === this._sizedDpr) return;
 
     this.width = w;
     this.height = h;
+    this._sizedDpr = dpr;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
@@ -672,29 +724,47 @@ export class KenoGame {
     this.dirty = true;
   }
 
+  /**
+   * Cache every derived measurement for the live canvas size. Resize-time only —
+   * nothing in here may run per frame.
+   */
   computeGeometry() {
     const w = this.width;
     const h = this.height;
-    const pad = Math.round(clamp(w * 0.03, 16, 34));
-    const headerH = 56;
-    const payoutH = 86;
+    // One scalar drives every font, pad and radius: the short edge against the desktop
+    // reference stage. The 0.5 floor stops an 800x200 landscape phone collapsing
+    // captions into mush; the 1.25 ceiling stops a 760px desktop stage ballooning them.
+    const s = clamp(Math.min(w, h) / 420, 0.5, 1.25);
+    const pad = Math.round(clamp(Math.min(w, h) * 0.035, 6, 24));
+    const areaW = Math.max(40, w - pad * 2);
+
+    // Chrome yields height before the grid does: take full bands, and only if that
+    // leaves untappable tiles fall back to the thinned ones.
+    let best = null;
+    for (const dense of [false, true]) {
+      // Also capped as a fraction of h, so a short stage can never starve the grid.
+      const headerH = Math.round(Math.min(h * 0.22, dense ? clamp(h * 0.10, 22, 44) : clamp(h * 0.13, 26, 62)));
+      const payoutH = Math.round(Math.min(h * 0.26, dense ? clamp(h * 0.11, 26, 46) : clamp(h * 0.17, 34, 84)));
+      const areaH = Math.max(30, h - pad * 2 - headerH - payoutH);
+      const fit = fitGrid(areaW, areaH);
+      if (!best || fit.cell > best.cell) best = { ...fit, dense, headerH, payoutH, areaH };
+      if (fit.cell >= MIN_TAP) break;
+    }
+
+    const { cols, rows, gap, cell, headerH, payoutH, areaH } = best;
+    const gw = cell * cols + gap * (cols - 1);
+    const gh = cell * rows + gap * (rows - 1);
     const top = pad + headerH;
-    const areaH = Math.max(80, h - pad - payoutH - top);
-    const areaW = w - pad * 2;
-    const gap = Math.round(clamp(w * 0.009, 5, 12));
-    const cell = Math.max(16, Math.min(
-      (areaW - gap * (GRID_COLS - 1)) / GRID_COLS,
-      (areaH - gap * (GRID_ROWS - 1)) / GRID_ROWS
-    ));
-    const gw = cell * GRID_COLS + gap * (GRID_COLS - 1);
-    const gh = cell * GRID_ROWS + gap * (GRID_ROWS - 1);
 
     return {
+      s,
       pad,
-      headerH,
-      payoutH,
+      cols,
+      rows,
       gap,
       cell,
+      headerH,
+      payoutH,
       gx: (w - gw) / 2,
       gy: top + (areaH - gh) / 2,
       gw,
@@ -703,12 +773,15 @@ export class KenoGame {
     };
   }
 
-  /** Top-left rect + side length for a tile number (1..40). */
+  /**
+   * Top-left rect + side length for a tile number (1..40).
+   * Reflow moves a number on screen; it never renumbers it.
+   */
   tileRect(num) {
     const g = this.geom;
     const i = num - 1;
-    const col = i % GRID_COLS;
-    const row = (i / GRID_COLS) | 0;
+    const col = i % g.cols;
+    const row = (i / g.cols) | 0;
     return {
       x: g.gx + col * (g.cell + g.gap),
       y: g.gy + row * (g.cell + g.gap),
@@ -723,9 +796,12 @@ export class KenoGame {
     const step = g.cell + g.gap;
     const col = Math.floor((x - g.gx) / step);
     const row = Math.floor((y - g.gy) / step);
-    if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) return 0;
-    if (x > g.gx + col * step + g.cell || y > g.gy + row * step + g.cell) return 0;
-    return row * GRID_COLS + col + 1;
+    if (col < 0 || col >= g.cols || row < 0 || row >= g.rows) return 0;
+    // Half the gap counts as tile: at phone tile sizes an exact-edge test rejects
+    // too many honest taps.
+    const slop = g.gap / 2;
+    if (x > g.gx + col * step + g.cell + slop || y > g.gy + row * step + g.cell + slop) return 0;
+    return row * g.cols + col + 1;
   }
 
   /** Convert a pointer event into stage-space CSS pixels. */
@@ -753,6 +829,12 @@ export class KenoGame {
       this.canvas.style.cursor = 'default';
       this.dirty = true;
     }
+  }
+
+  _onPointerUp(e) {
+    // Mouse keeps its hover after a click; touch/pen get no pointerleave, so clear.
+    if (e && e.pointerType === 'mouse') return;
+    this._onPointerLeave();
   }
 
   _onPointerDown(e) {
@@ -834,11 +916,13 @@ export class KenoGame {
       if (anim.pop <= 0) this.tileAnim.delete(num);
     }
 
+    // Gravity tracks the burst scale set in triggerHitFX, or the arc outruns the spray.
+    const grav = 220 * (this.geom ? clamp(this.geom.cell / 70, 0.45, 1.25) : 1);
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.vy += 220 * dt;
+      p.vy += grav * dt;
       p.vx *= 0.97;
       p.life -= p.decay * dt;
       if (p.life <= 0) this.particles.splice(i, 1);
@@ -888,45 +972,84 @@ export class KenoGame {
     const ctx = this.ctx;
     const g = this.geom;
     const w = this.width;
+    const s = g.s;
     const picks = this.pickedTiles.size;
+    const top = g.pad;
+    const hh = g.headerH;
 
-    T.heroText(ctx, 'KENO', g.pad, g.pad + 17, { size: 26, align: 'left', blur: 20 });
-    T.caption(ctx, 'Casino Original', g.pad + 2, g.pad + 39, { size: 9.5, align: 'left' });
-
-    const bw = Math.min(150, Math.max(112, w * 0.17));
-    const bh = 46;
+    // The pick counter is the one header element the game actually needs; title,
+    // subtitle and last-round badge give way as the stage narrows.
+    const bw = Math.round(clamp(Math.min(w * 0.26, hh * 3.6), 70, 168));
     const bx = w - g.pad - bw;
-    const by = g.pad;
+    const stacked = hh >= 34;
+    const radius = clamp(12 * s, 7, 14);
+    const titleSize = clamp(26 * s, 13, 32);
 
-    T.panel(ctx, bx, by, bw, bh, { radius: 12, accent: picks > 0 ? T.PALETTE.mint : null });
-    T.caption(ctx, 'Selected', bx + bw / 2, by + 14, { size: 9 });
-    T.heroText(ctx, `${picks} / ${this.maxPicks}`, bx + bw / 2, by + 31, {
-      size: 17,
-      blur: picks > 0 ? 14 : 0,
-      color: picks > 0 ? T.PALETTE.mint : T.PALETTE.textDim
-    });
+    if (hh >= 42 && w >= 340) {
+      T.heroText(ctx, 'KENO', g.pad, top + hh * 0.38, { size: titleSize, align: 'left', blur: 20 * s });
+      T.caption(ctx, 'Casino Original', g.pad + 2, top + hh * 0.80, { size: clamp(9.5 * s, 7.5, 11), align: 'left' });
+    } else {
+      T.heroText(ctx, 'KENO', g.pad, top + hh / 2, { size: titleSize, align: 'left', blur: 16 * s });
+    }
 
-    // Last-round badge sits to the left of the pick counter when there is room.
+    const pickColor = picks > 0 ? T.PALETTE.mint : T.PALETTE.textDim;
+    const pickBlur = picks > 0 ? 14 * s : 0;
+    T.panel(ctx, bx, top, bw, hh, { radius, accent: picks > 0 ? T.PALETTE.mint : null });
+    if (stacked) {
+      T.caption(ctx, 'Selected', bx + bw / 2, top + hh * 0.31, { size: clamp(9 * s, 7.5, 10) });
+      T.heroText(ctx, `${picks} / ${this.maxPicks}`, bx + bw / 2, top + hh * 0.68, {
+        size: clamp(17 * s, 12, 20),
+        blur: pickBlur,
+        color: pickColor
+      });
+    } else {
+      T.heroText(ctx, `${picks}/${this.maxPicks}`, bx + bw / 2, top + hh / 2, {
+        size: clamp(15 * s, 11, 18),
+        blur: pickBlur,
+        color: pickColor
+      });
+    }
+
+    // Last-round badge only when it clears the title — width is measured, not assumed
+    // at a breakpoint, because the title itself scales.
     const res = this.lastResult;
-    if (!res || w < 620) return;
+    if (!res) return;
+    const lw = Math.round(clamp(Math.min(w * 0.2, hh * 4), 92, 180));
+    const lx = bx - Math.round(10 * s) - lw;
+    if (lx < g.pad + titleSize * 3.2) return;
 
-    const lw = Math.min(158, Math.max(120, w * 0.18));
-    const lx = bx - 12 - lw;
     const tone = res.won ? (res.multiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint) : T.PALETTE.red;
+    const label = res.won ? `${multLabel(res.multiplier)}x` : 'NO WIN';
 
-    T.panel(ctx, lx, by, lw, bh, { radius: 12, accent: tone });
-    T.caption(ctx, `${res.hits} of ${res.pickedTiles.length} hit`, lx + lw / 2, by + 14, { size: 9 });
-    T.heroText(ctx, res.won ? `${multLabel(res.multiplier)}x` : 'NO WIN', lx + lw / 2, by + 31, {
-      size: res.won ? 17 : 14,
-      blur: 14,
-      color: tone
-    });
+    T.panel(ctx, lx, top, lw, hh, { radius, accent: tone });
+    if (stacked) {
+      T.caption(ctx, `${res.hits} of ${res.pickedTiles.length} hit`, lx + lw / 2, top + hh * 0.31, { size: clamp(9 * s, 7.5, 10) });
+      T.heroText(ctx, label, lx + lw / 2, top + hh * 0.68, {
+        size: clamp((res.won ? 17 : 14) * s, 11, 20),
+        blur: 14 * s,
+        color: tone
+      });
+    } else {
+      T.heroText(ctx, `${res.hits}/${res.pickedTiles.length} \u00b7 ${label}`, lx + lw / 2, top + hh / 2, {
+        size: clamp(11 * s, 9, 14),
+        blur: 10 * s,
+        color: tone
+      });
+    }
   }
 
   drawGrid(now) {
     const ctx = this.ctx;
     const g = this.geom;
     const pickable = this.state !== 'playing';
+    const cell = g.cell;
+    const radius = clamp(cell * 0.22, 4, 20);
+    // The numbers are the whole game — size them off the live tile, never a constant.
+    const numFont = `700 ${Math.round(clamp(cell * 0.4, 8, 34))}px ${MONO}`;
+    const glowK = clamp(cell / 70, 0.5, 1.2);
+    const ringInset = Math.max(2, cell * 0.11);
+    const ringWidth = clamp(cell * 0.06, 1, 2.4);
+    const ringRadius = Math.max(3, cell * 0.18);
 
     for (let n = 1; n <= this.totalTiles; n++) {
       const picked = this.pickedTiles.has(n);
@@ -941,14 +1064,14 @@ export class KenoGame {
         state = 'revealed';
         accent = T.PALETTE.gold;
         numColor = T.PALETTE.white;
-        numGlow = 14;
+        numGlow = 14 * glowK;
       } else if (drawn) {
         state = 'bad';
         numColor = '#fca5a5';
       } else if (picked) {
         state = 'selected';
         numColor = T.PALETTE.text;
-        numGlow = 8;
+        numGlow = 8 * glowK;
         accent = T.PALETTE.mint;
       } else if (n === this.hoverTile && pickable) {
         state = 'hover';
@@ -956,40 +1079,39 @@ export class KenoGame {
       }
 
       const r = this.tileRect(n);
-      const s = r.s;
       const anim = this.tileAnim.get(n);
       const pop = anim ? anim.pop : 0;
 
       ctx.save();
       if (pop > 0) {
         const scale = 1 + 0.3 * pop * pop;
-        const cx = r.x + s / 2;
-        const cy = r.y + s / 2;
+        const cx = r.x + cell / 2;
+        const cy = r.y + cell / 2;
         ctx.translate(cx, cy);
         ctx.scale(scale, scale);
         ctx.translate(-cx, -cy);
       }
 
-      T.tile(ctx, r.x, r.y, s, s, { state, accent, radius: Math.max(6, s * 0.22) });
+      T.tile(ctx, r.x, r.y, cell, cell, { state, accent, radius });
 
       // Idle life: picked tiles breathe until the draw starts.
       if (state === 'selected' && !this.reduced) {
         const a = 0.14 + 0.14 * Math.sin(now * 0.0032 + n * 0.7);
         ctx.strokeStyle = T.alpha(T.PALETTE.mint, a);
-        ctx.lineWidth = 2;
-        T.roundRect(ctx, r.x + 3.5, r.y + 3.5, s - 7, s - 7, Math.max(4, s * 0.18));
+        ctx.lineWidth = ringWidth;
+        T.roundRect(ctx, r.x + ringInset, r.y + ringInset, cell - ringInset * 2, cell - ringInset * 2, ringRadius);
         ctx.stroke();
       }
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `700 ${Math.round(s * 0.36)}px ${MONO}`;
+      ctx.font = numFont;
       if (numGlow > 0) {
         ctx.shadowColor = state === 'revealed' ? T.PALETTE.gold : T.PALETTE.mint;
         ctx.shadowBlur = numGlow;
       }
       ctx.fillStyle = numColor;
-      ctx.fillText(String(n), r.x + s / 2, r.y + s / 2 + 1);
+      ctx.fillText(String(n), r.x + cell / 2, r.y + cell / 2 + cell * 0.02);
       ctx.restore();
     }
   }
@@ -998,7 +1120,7 @@ export class KenoGame {
     if (this.rings.length === 0) return;
     const ctx = this.ctx;
     ctx.save();
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = this.geom ? clamp(this.geom.cell * 0.05, 1, 2.5) : 2.5;
     for (const r of this.rings) {
       ctx.strokeStyle = T.alpha(r.color, Math.max(0, r.life) * 0.7);
       ctx.beginPath();
@@ -1026,6 +1148,7 @@ export class KenoGame {
     const ctx = this.ctx;
     const g = this.geom;
     const w = this.width;
+    const s = g.s;
 
     const picks = Math.max(1, this.pickedTiles.size);
     const table = (KENO_PAYOUTS[this.risk] || KENO_PAYOUTS.classic)[picks] || [];
@@ -1036,46 +1159,82 @@ export class KenoGame {
     for (const m of table) if (m > maxMult) maxMult = m;
 
     const py = g.payoutY;
-    T.caption(
-      ctx,
-      `Payout \u00b7 ${picks} pick${picks === 1 ? '' : 's'} \u00b7 ${this.risk}`,
-      w / 2,
-      py + 10,
-      { size: 9.5, color: T.PALETTE.textFaint }
-    );
+    const bandH = g.payoutH;
+    const areaW = w - g.pad * 2;
+    const gap = Math.round(clamp(8 * s, 3, 10));
 
+    // Trim tiers before shrinking chips: an illegible 20px chip is worse than a window
+    // onto the paying end of the table. The window always contains the live tier.
     const n = table.length;
-    const gap = 8;
-    const chipW = Math.min(92, (w - g.pad * 2 - gap * (n - 1)) / n);
-    const chipH = 36;
-    const rowW = chipW * n + gap * (n - 1);
-    const x0 = (w - rowW) / 2;
-    const cy = py + 40;
-    const labelFont = `800 ${Math.round(clamp(chipW * 0.19, 10, 15))}px ${MONO}`;
+    const maxChips = Math.max(2, Math.floor((areaW + gap) / (MIN_CHIP + gap)));
+    let start = 0;
+    let count = n;
+    if (n > maxChips) {
+      count = maxChips;
+      start = n - maxChips;
+      if (currentHits >= 0 && currentHits < start) start = currentHits;
+    }
 
-    for (let hits = 0; hits < n; hits++) {
+    // Bands stack top-down; the heading is the first thing to go when height is scarce.
+    const headingH = bandH >= 50 ? Math.round(clamp(bandH * 0.26, 12, 20)) : 0;
+    const hitsH = bandH >= 26 ? Math.round(clamp(bandH * 0.24, 10, 18)) : 0;
+    const chipTop = py + headingH + hitsH;
+    const chipH = clamp(py + bandH - chipTop, 12, 46);
+
+    if (headingH > 0) {
+      T.caption(
+        ctx,
+        `Payout \u00b7 ${picks} pick${picks === 1 ? '' : 's'} \u00b7 ${this.risk}`,
+        w / 2,
+        py + headingH / 2,
+        { size: clamp(9.5 * s, 7.5, 11), color: T.PALETTE.textFaint }
+      );
+    }
+
+    const chipW = Math.min(clamp(96 * s, 44, 96), (areaW - gap * (count - 1)) / count);
+    const rowW = chipW * count + gap * (count - 1);
+    const x0 = (w - rowW) / 2;
+    const chipR = clamp(chipH * 0.25, 5, 10);
+
+    // The longest visible label picks the font, so nothing ever clips out of a chip.
+    let maxLen = 2;
+    for (let i = 0; i < count; i++) maxLen = Math.max(maxLen, multLabel(table[start + i]).length + 1);
+    const labelSize = Math.floor(clamp(
+      Math.min(chipH * 0.46, (chipW - Math.max(4, chipW * 0.14)) / (maxLen * 0.62)),
+      7,
+      16
+    ));
+    const labelFont = `800 ${labelSize}px ${MONO}`;
+    const hitsSize = clamp(bandH * 0.22, 8, 10);
+    const hitsWords = chipW >= 46 && hitsSize >= 8.5;
+    const hitsY = py + headingH + hitsH / 2;
+
+    for (let i = 0; i < count; i++) {
+      const hits = start + i;
       const mult = table[hits];
-      const cx = x0 + hits * (chipW + gap);
+      const cx = x0 + i * (chipW + gap);
       const live = hits === currentHits;
       const win = mult > 0;
 
-      T.caption(ctx, `${hits} hit${hits === 1 ? '' : 's'}`, cx + chipW / 2, py + 27, {
-        size: 9,
-        color: live ? (win ? T.PALETTE.mint : T.PALETTE.red) : T.PALETTE.textFaint
-      });
+      if (hitsH > 0) {
+        T.caption(ctx, hitsWords ? `${hits} hit${hits === 1 ? '' : 's'}` : String(hits), cx + chipW / 2, hitsY, {
+          size: hitsSize,
+          color: live ? (win ? T.PALETTE.mint : T.PALETTE.red) : T.PALETTE.textFaint
+        });
+      }
 
       if (win) {
-        T.chip(ctx, cx, cy, chipW, chipH, {
+        T.chip(ctx, cx, chipTop, chipW, chipH, {
           color: T.heatColor(mult, maxMult),
           label: `${multLabel(mult)}x`,
-          radius: 9,
+          radius: chipR,
           lift: live ? 1 : 0,
           font: labelFont
         });
       } else {
-        T.chip(ctx, cx, cy, chipW, chipH, { color: T.PALETTE.slate, radius: 9 });
-        T.caption(ctx, multLabel(mult), cx + chipW / 2, cy + chipH / 2, {
-          size: 13,
+        T.chip(ctx, cx, chipTop, chipW, chipH, { color: T.PALETTE.slate, radius: chipR });
+        T.caption(ctx, multLabel(mult), cx + chipW / 2, chipTop + chipH / 2, {
+          size: labelSize,
           color: T.PALETTE.textFaint,
           weight: 800,
           spacing: false
@@ -1083,10 +1242,11 @@ export class KenoGame {
       }
 
       if (live) {
+        const o = clamp(chipH * 0.08, 2, 3.5);
         ctx.save();
         ctx.strokeStyle = win ? T.PALETTE.white : T.PALETTE.red;
-        ctx.lineWidth = 1.6;
-        T.roundRect(ctx, cx - 3, cy - 3, chipW + 6, chipH + 6, 12);
+        ctx.lineWidth = clamp(chipH * 0.045, 1.2, 1.8);
+        T.roundRect(ctx, cx - o, chipTop - o, chipW + o * 2, chipH + o * 2, chipR + o);
         ctx.stroke();
         ctx.restore();
       }
@@ -1113,22 +1273,28 @@ export class KenoGame {
 
     const ctx = this.ctx;
     const g = this.geom;
-    const bw = Math.min(300, this.width - g.pad * 2);
-    const bh = 108;
+    // Sized off the grid it covers, so it never spills past the board on a phone.
+    const bw = Math.min(this.width - g.pad * 2, clamp(this.width * 0.62, 150, 340));
+    const bh = clamp(Math.min(g.gh * 0.9, this.height * 0.34), 52, 120);
     const bx = (this.width - bw) / 2;
     const by = g.gy + g.gh / 2 - bh / 2;
     const tone = res.won ? (res.multiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint) : T.PALETTE.red;
 
     ctx.save();
     ctx.globalAlpha = fade;
-    T.panel(ctx, bx, by, bw, bh, { radius: 16, accent: tone });
-    T.caption(ctx, res.won ? 'You win' : 'No match', this.width / 2, by + 24, { size: 10, color: tone });
-    T.heroText(ctx, res.won ? `${multLabel(res.multiplier)}x` : `${res.hits} hits`, this.width / 2, by + 58, {
-      size: 38,
-      color: tone,
-      blur: 26
+    T.panel(ctx, bx, by, bw, bh, { radius: clamp(bh * 0.15, 8, 16), accent: tone });
+    T.caption(ctx, res.won ? 'You win' : 'No match', this.width / 2, by + bh * 0.22, {
+      size: clamp(bh * 0.1, 7.5, 11),
+      color: tone
     });
-    T.caption(ctx, `${res.hits} / ${res.pickedTiles.length} matched`, this.width / 2, by + 88, { size: 9.5 });
+    T.heroText(ctx, res.won ? `${multLabel(res.multiplier)}x` : `${res.hits} hits`, this.width / 2, by + bh * 0.54, {
+      size: clamp(bh * 0.36, 15, 40),
+      color: tone,
+      blur: clamp(bh * 0.24, 10, 26)
+    });
+    T.caption(ctx, `${res.hits} / ${res.pickedTiles.length} matched`, this.width / 2, by + bh * 0.84, {
+      size: clamp(bh * 0.09, 7, 10)
+    });
     ctx.restore();
   }
 
@@ -1142,6 +1308,8 @@ export class KenoGame {
     if (this.canvas) {
       this.canvas.removeEventListener('pointermove', this._onPointerMove);
       this.canvas.removeEventListener('pointerleave', this._onPointerLeave);
+      this.canvas.removeEventListener('pointerup', this._onPointerUp);
+      this.canvas.removeEventListener('pointercancel', this._onPointerLeave);
       this.canvas.removeEventListener('pointerdown', this._onPointerDown);
     }
     if (typeof window !== 'undefined') window.removeEventListener('resize', this.resize);

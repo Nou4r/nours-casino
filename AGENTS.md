@@ -33,30 +33,30 @@ for f in js/*.js js/games/*.js js/math/*.js js/render/*.js; do node --check "$f"
 ## 2. Layout
 
 ```
-index.html           1371 lines   All markup: topbar, lobby screen + 11 inline SVG card scenes, sidebar control panes, stage views, modals, cheat panel, account + customize modals, SVG sprite
-styles.css           1031 lines   Base theme, layout grid, components, responsive, prefers-* rules
-css/gamdom.css        894 lines   Colour tokens, live-bets skin, chrome polish, brand mark, cheat panel, player profiles (loaded AFTER styles.css)
-css/lobby.css        1307 lines   Lobby design system: route visibility, hero, grid, card art keyframes (loaded LAST)
+index.html           1373 lines   All markup: topbar, lobby screen + 11 inline SVG card scenes, sidebar control panes, stage views, modals, cheat panel, account + customize modals, SVG sprite
+styles.css           1236 lines   Base theme, layout grid, components, responsive shell ← read §14
+css/gamdom.css        935 lines   Colour tokens, live-bets skin, chrome polish, brand mark, cheat panel, player profiles (loaded AFTER styles.css)
+css/lobby.css        1430 lines   Lobby design system: route visibility, hero, grid, card art keyframes (loaded LAST)
 start.bat              23 lines   Windows batch launcher (opens browser + starts python http.server 8080)
 cookies.txt                       Session cookies used only to view the reference site; app never reads it (gitignored — local only)
 js/app.js            3099 lines   Controller. Owns state, wallet, history, stats, auto-mode, routing, cheat panel, profiles, customization, all wiring
 js/accounts.js        791 lines   Named player profiles in localStorage + export/import codes ← read §7
 js/cheats.js          403 lines   Cheat mode outcome peek for all 11 games ← read §6
-js/physics.js        1443 lines   Plinko board: peg pyramid, ball sim, bucket VFX
+js/physics.js        1604 lines   Plinko board: peg pyramid, ball sim, bucket VFX
 js/audio.js           462 lines   Web Audio synthesiser — zero audio files
 js/render/theme.js    636 lines   SHARED canvas theme: palette, paintStage, peg/chip/tile/card/... ← read §5
 js/math/multipliers.js 163 lines  Plinko payout tables (rows 8-16 × low/medium/high) + binomial/RTP math
 js/math/provably-fair.js 318      HMAC-SHA256 outcome derivation, seed pair, verifier, SHA-256 fallback
 
-js/games/crash.js     939 lines   Exponential curve + orb head
-js/games/twist.js    1309         3-ring celestial orbital game (Planet cyan / Moon purple / Sun gold)
-js/games/limbo.js    1214         Target-multiplier roll (DOM-rendered + canvas rail)
-js/games/roulette.js 1021         15-slot horizontal strip spinner
-js/games/dice.js     1154         Slider roll over/under (backs BOTH `dice` and `pocket-dice` tabs)
-js/games/hilo.js     1477         Higher/lower card guessing, progressive multiplier
-js/games/keno.js     1159         40-tile grid, 10 picks, match payout table
-js/games/mines.js    1372         5×5 grid, 1–20 mines via preset select (module clamps 1–24)
-js/games/blackjack.js 1480        Classic 21 vs dealer, hit/stand/double
+js/games/crash.js    1146 lines   Exponential curve + orb head
+js/games/twist.js    1413         3-ring celestial orbital game (Planet cyan / Moon purple / Sun gold)
+js/games/limbo.js    1486         Target-multiplier roll (DOM-rendered + canvas rail)
+js/games/roulette.js 1150         15-slot horizontal strip spinner
+js/games/dice.js     1385         Slider roll over/under (backs BOTH `dice` and `pocket-dice` tabs)
+js/games/hilo.js     1776         Higher/lower card guessing, progressive multiplier
+js/games/keno.js     1327         40-tile grid, 10 picks, match payout table
+js/games/mines.js    1498         5×5 grid, 1–20 mines via preset select (module clamps 1–24)
+js/games/blackjack.js 1720        Classic 21 vs dealer, hit/stand/double
 
 wrangler.jsonc         22 lines   Cloudflare assets-only Worker (no `main`) ← read §13
 .assetsignore          31 lines   ALLOW-LIST of publishable files. Read BEFORE adding a root file ← §13
@@ -600,10 +600,49 @@ Cheat mode (this pass):
 - **Balance invariant with cheat on**: 85 auto rounds across all 11 games,
   `$954.45 === 1000 − 850 + 804.45`, zero page errors.
 
-Observed but NOT fixed (pre-existing, unrelated to this pass): a ~5 px horizontal document
-overflow at some widths, present identically with cheat mode on and off. §11's earlier "no
-horizontal scroll at 420 px" claim does not reproduce. `.lobby__orb--b` was ruled out — it is
-clipped by `.lobby__bg { overflow:hidden }`. Source not attributed.
+The ~5 px horizontal document overflow this section previously recorded as unattributed is
+**resolved** — see the responsive pass below. It was the `.layout { align-items: start }`
+leak into the ≤1080px column flex box (§14), not `.lobby__orb--b`.
+
+Responsive pass (this pass) — see §14 for the design:
+
+- Syntax gate clean across all 17 modules; braces balanced in all three CSS files; zero
+  duplicate ids in `index.html`.
+- **11 games × 11 viewports** (320×568, 360×740, 390×844, 430×932, 768×1024, 820×1180,
+  844×390, 1024×768, 1280×800, 1440×900, 1920×1080): every canvas inside its host and
+  inside `#board-stage`, zero document overflow, the fixed action bar on screen and clear
+  of the stage in every stacked case, zero page errors.
+- **Header token accuracy**: measured header height vs `--topbar-h` is within 1px (the
+  border) at every breakpoint — 67/66 desktop, 77/76 tablet, 113/112 phone.
+- **Lobby overflow**: 0 at 320/360/375/390/430. The only elements extending past the
+  viewport are inside the two deliberate swipe strips (hero stats, filter chips), which is
+  what makes the clipped last chip read as "more".
+- **rAF re-arm across a pane round-trip**, all ten looping modules: handle advances, pane
+  switched away and back, handle advances again. Crash was driven mid-round for the state
+  half: the multiplier went 1.234 → 2.211 **while its pane was hidden**, and the chain kept
+  advancing on return — state is never gated, only paint.
+- **Money invariant**: eight instant/auto-settling games driven one at a time, residual
+  exactly `0` each; twist / hilo / mines each run twice with a real mid-round cashout,
+  residual exactly `0` each; `pending` 0 and no round left open afterwards.
+- **Cheat panel** (the click-through HUD that must never clip, §6): mines — the tallest
+  model — renders unclipped at 320×568, 360×740, 390×844, 430×932, 768×1024, 820×1180,
+  844×390, 932×430, 1024×768, 1280×620, 1280×470 and 1440×900, never overlaps the fixed
+  action bar, and is fully on screen at all of them.
+- **Reduced motion**: 51 running animations under `no-preference`, **0** under `reduce`.
+- **No in-canvas cashout exists.** Verified by grep: only keno, mines and physics register
+  pointer listeners, none of them call `this.cashout()`, and every cashout still routes
+  through a DOM button into the app handler — so no stage can settle a round without the
+  wallet being credited.
+
+Two harness notes worth keeping:
+
+1. **rAF does not fire in a backgrounded automation tab.** `document.hidden` reported
+   `false` while 0 frames ran in 1.5 s, which made roulette and crash look permanently
+   stuck mid-round with a stranded stake. `page.bringToFront()` fixes it. Any timing-based
+   verification here is meaningless without it, and it looks exactly like a money bug.
+2. `localStorage.clear()` followed by a navigation does **not** give a clean session — the
+   `beforeunload` flush writes the live state straight back. Measure invariants as deltas
+   across a run instead of against an absolute `START_BALANCE`.
 
 Lobby work (earlier pass):
 
@@ -758,3 +797,107 @@ Adding a game means adding a lobby card with an inline `--accent` style; that is
 covered. Adding an inline `<script>`, a `fetch()` to another origin, or an `<img src="https://…">`
 is not — update the CSP in the same commit, and re-verify with a browser console open, because
 a CSP violation is silent in the network tab and fatal to the stage.
+
+---
+
+## 14. Responsive system — read before touching any breakpoint
+
+Three regimes, and every one of them is driven by a real measurement, never a guess.
+
+|Width|Layout|Header|Bet action|Tab strip|
+|---|---|---|---|---|
+|`> 1080px`|two-column grid, sticky sidebar|sticky, 66px|in the sidebar|visible, scrolls when it doesn't fit|
+|`<= 1080px`|**single column, stage FIRST**|sticky, 76px|**fixed bottom bar**|hidden — the lobby is the switcher|
+|`<= 520px`|same|sticky two rows, 112px|fixed bottom bar|hidden|
+
+Plus two orthogonal blocks: `@media (pointer: coarse)` for 44px targets, and
+`@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape)` for
+rotated phones.
+
+### `--topbar-h` is a MEASUREMENT, not a preference
+
+`.controls` sticky top, the lobby toolbar and the landscape stage height are all
+`calc(... var(--topbar-h) ...)`. The token is set per breakpoint to the header's real
+rendered height (66 / 76 / 112, each verified to within the 1px border). **Change anything
+in the header and re-measure it in the browser** — a token that drifts from reality
+misaligns every sticky offset in the app silently, which is the regression §10 exists for.
+That is also why the tools cluster is `flex-wrap: nowrap; overflow-x: auto` rather than
+wrapping: a wrap grows the header invisibly, an overflow does not.
+
+### The bug class that produced almost every overflow found here
+
+**A flex item cannot shrink below its automatic minimum size.** Five separate horizontal
+overflows in this pass were the same bug wearing different hats:
+
+- `.layout { align-items: start }` (written for the grid) became `flex-start` in the
+  ≤1080px column flex box, so children sized to **max-content** instead of stretching —
+  twist, keno and mines pushed a 463px canvas out of a 390px viewport. Fixed with
+  `align-items: stretch` + `min-width: 0` on the children.
+- `.game-nav` had `overflow-x: auto` but no `min-width: 0`, so eleven tabs (1007px) shoved
+  the document 601px sideways at 1440px instead of scrolling.
+- `.lobby-toolbar` kept `flex-wrap: wrap` when it flipped to a column: in a WRAPPING
+  container each line's cross size comes from its own items, so `align-items: stretch`
+  stretched the search field to its 391px max-content, not the 336px container.
+- `.lobby-search .input` — an `<input>` has a default `size`, so its min-content is ~380px
+  and no parent can stretch it smaller. Needs `min-width: 0`.
+- `.cheat-grid` used `margin-inline: auto` to centre: an auto cross-axis margin overrides
+  `stretch`, the item falls back to content width, and `1fr` tracks with no intrinsic cell
+  size collapsed a 5×5 board to **1px cells**. Use `align-self: center` + an explicit width.
+
+If something overflows, the answer is almost always `min-width: 0`, `align-self` instead of
+an auto margin, or `nowrap`. Verify with a walk over every element comparing
+`getBoundingClientRect().right` against `documentElement.clientWidth` — but §10.13 still
+applies: check `scrollWidth` before believing it, because an element clipped by an
+`overflow:hidden` ancestor (or living inside a deliberate swipe strip) is a false positive.
+
+### The fixed bottom action bar
+
+`#btn-drop` goes `position: fixed` for the whole stacked regime, not just phones — the
+moment the layout stacks, the bet button sits below the stage (measured y=1308 on a
+1024×768 tablet). Two traps:
+
+1. **`.panel` sets `backdrop-filter`**, and a non-`none` backdrop-filter makes an element a
+   containing block for fixed descendants. Leave it on and the button pins to the bottom of
+   the controls panel instead of the screen — it looks almost right and fails exactly where
+   you cannot see it. `.controls { backdrop-filter: none }` is in the same block for that
+   reason (and is the cheapest perf win on a phone GPU).
+2. **Everything anchored to the bottom must clear it**: toasts (`bottom: 92px + safe-area`)
+   and the cheat panel dock (css/gamdom.css). Add a new bottom-anchored element and it must
+   join that list.
+
+### Per-game canvas contract
+
+Every module's `resize()` now obeys four rules. A twelfth game must too:
+
+1. **Never floor the canvas above its host.** `Math.max(320, rect.width)` on a 296px host
+   pushes the canvas out of the viewport. Clamp down, never up.
+2. **A 0×0 host is a no-op return, never a fallback size.** A hidden pane measures 0; the
+   old `rect.width ? rect.width : 900` sized the canvas to 900 and then fed that back as the
+   host's max-content width. Keep the previous size — the ResizeObserver and `enterGame()`'s
+   rAF resize fire again once the pane is visible.
+3. **ResizeObserver on the host**, disconnected on teardown, alongside the window listener.
+4. **Clear hover on `pointerup` / `pointercancel`.** Touch never fires `pointerleave`, so a
+   tapped tile stays visually hovered forever. Skip `pointerType === 'mouse'` so a desktop
+   click doesn't drop the highlight.
+
+Every drawing constant is derived from the live canvas size (typically one scalar like
+`clamp(min(w, h) / 420, lo, hi)`), computed in `resize()` and cached — never per frame.
+Targets are 296×296 through 1200×760, plus the ~800×200 landscape sliver, which is why
+several stages (mines, hilo, twist, keno) pick between a stacked and a side-by-side
+arrangement rather than trusting a single layout.
+
+`#<game>-stage` mount points are given `width/height: 100%` in styles.css. Without it
+`#hilo-stage` and `#blackjack-stage` measured **0×0** (a flex item collapsing against a
+100%-sized canvas child), which silently disabled their ResizeObserver — a 0×0 box never
+reports a size change.
+
+### Touch specifics
+
+- `.game-stage-view canvas { touch-action: manipulation }` — kills the 300ms tap delay and
+  double-tap zoom on every board. Deliberately not `none`: the stage is most of a phone
+  screen and `none` would make it unscrollable. No stage uses a canvas drag gesture (dice's
+  slider is a sidebar input, confirmed) — add one and that stage needs `none`.
+- `body { overscroll-behavior-y: contain }` so a pull-down mid-round cannot reload the page.
+- Modals become bottom sheets at ≤520px (`place-items: end stretch`, `sheetIn` keyframes,
+  `88svh` — svh not dvh, so the sheet does not resize as the URL bar collapses).
+- `env(safe-area-inset-*)` on the topbar, the action bar, the toasts and the lobby gutters.

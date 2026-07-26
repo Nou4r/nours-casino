@@ -70,6 +70,10 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+  /* A pull-down on a game board must not reload the page mid-round. `contain`
+     rather than `none`: internal scrolling still works, only the chain to the
+     browser's pull-to-refresh is cut. */
+  overscroll-behavior-y: contain;
 }
 
 h1, h2, h3, p, ul, ol, figure { margin: 0; }
@@ -156,7 +160,21 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
   padding: 4px;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
+  /* Eleven tabs are ~1007px wide. A flex item's automatic minimum size is its
+     content, so without min-width:0 this strip shoves the document sideways
+     instead of scrolling — 601px of horizontal scroll at 1440px, measured, once
+     the tools cluster grew. Shrink-and-scroll is the behaviour at every width;
+     the strip is simply wide enough not to scroll on a big desktop. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
 }
+.game-nav::-webkit-scrollbar { display: none; }
+.game-tab { scroll-snap-align: center; white-space: nowrap; }
 .game-tab {
   display: flex;
   align-items: center;
@@ -379,10 +397,32 @@ kbd {
   align-items: center;
   justify-content: center;
 }
+/* Per-game mount points inside a stage view. #hilo-stage and #blackjack-stage
+   measured 0x0 (the flex item collapsed against a 100%-sized canvas child, a
+   circular sizing loop), which silently disables the module's ResizeObserver:
+   a 0x0 box never reports a size change, so those two stages were relying on the
+   window resize listener alone. Give every mount point the stage box explicitly
+   so the observed element and the measured element are the same real rectangle. */
+#blackjack-stage,
+#dice-stage,
+#hilo-stage,
+#keno-stage,
+#mines-stage,
+#pocket-dice-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
 .game-stage-view canvas {
   width: 100%;
   height: 100%;
   display: block;
+  /* Kill the 300ms tap delay and double-tap zoom on every board. `manipulation`
+     rather than `none`: on a phone the stage is most of the screen, and `none`
+     would make the page unscrollable wherever the game is. No stage uses a
+     canvas drag gesture — hover is pointermove only — so nothing needs `none`. */
+  touch-action: manipulation;
 }
 
 /* Limbo Display */
@@ -774,6 +814,12 @@ select.input option { background: var(--panel-2); color: var(--text); }
   from { opacity: 0; transform: translateY(22px) scale(.96); }
   to   { opacity: 1; transform: none; }
 }
+/* Bottom-sheet entrance for the <=520px modal treatment. Translate-only so it
+   composites on the GPU; a scale here would blur text on a phone DPR. */
+@keyframes sheetIn {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: none; }
+}
 
 .modal__head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -963,53 +1009,212 @@ select.input option { background: var(--panel-2); color: var(--text); }
 }
 
 @media (max-width: 1080px) {
-  .layout { display: flex; flex-direction: column; }
-  .controls { position: relative; top: 0; width: 100%; }
+  /* .layout stops being a grid here. The `align-items: start` it carries for the
+     grid becomes flex-start in a column flex box, which sizes children to their
+     MAX-CONTENT width instead of stretching — that is exactly what let twist,
+     keno and mines push a 463px canvas out of a 390px viewport (96px of
+     horizontal scroll). Stretch, and give the children a shrinkable min-width. */
+  .layout { display: flex; flex-direction: column; align-items: stretch; }
+  .controls, .board { width: 100%; min-width: 0; }
+  .controls { position: relative; top: 0; }
+
+  /* Table first, bet panel under it. Landing on a wall of settings and having to
+     scroll 670px to reach the game is the single biggest tell of a desktop layout
+     squeezed onto a phone. */
+  .board    { order: 1; }
+  .controls { order: 2; }
+
   .controls__scroll { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-  .board-stage { aspect-ratio: 1.25; max-height: 65vh; min-height: 340px; }
+  .board-stage { aspect-ratio: 1.25; max-height: 65dvh; min-height: 340px; }
   .hotkeys { display: none; }
+
+  /* The tab strip goes below 1080px. Measured, it collapses to 9-68px here —
+     competing with the wallet and seven tool buttons for a row it cannot win —
+     and what is left is an unreadable sliver that still pushed 76px of horizontal
+     scroll at 768px. Tablets and phones navigate the way every mobile casino
+     does: #btn-home to the lobby, cards forward. The buttons stay in the DOM, so
+     selectGame()/is-active wiring is untouched. */
+  .game-nav { display: none; }
+
+  /* Seven tools live in this cluster now (four moved out of .wallet); their
+     labels do not fit beside the wallet. */
+  .topbar__actions .btn__label { display: none; }
+  .topbar__actions .btn { padding: 8px; }
+  /* The profile name is a label like any other, and at 768px it was the last
+     ~110px that pushed the cluster (measured 398px wide) past the viewport.
+     #btn-account keeps its user icon and colour dot. */
+  .acct-name { display: none; }
+  /* The wallet must be shrinkable too, or the tools cluster eats the 5px the
+     header is short at 768px and spills instead. */
+  .wallet { min-width: 0; }
+  .wallet__meta { min-width: 0; }
+  /* Safety net for a future tool: the cluster SCROLLS, it does not wrap. A wrap
+     grows the header past the measured --topbar-h and desyncs every sticky offset
+     silently (AGENTS.md §10) — at 320px it was already doing exactly that, adding
+     44px of untracked header. Overflow inside a fixed-height row stays visible
+     and stays fixable. */
+  .topbar__actions {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar__actions::-webkit-scrollbar { display: none; }
+
+  /* Coarse-pointer floors grow the header to 74px here; --topbar-h feeds every
+     sticky offset in the app (AGENTS.md §10) and must track the measurement. */
+  :root { --topbar-h: 76px; }
+
+  /* Thumb-reachable action bar for the whole stacked regime, the way every mobile
+     casino does it. It belongs here, not at 720px: the moment the layout stacks,
+     the bet button sits BELOW the stage — measured at y=1308 on a 1024x768 tablet,
+     a full scroll away from the game you are betting on.
+     .panel sets backdrop-filter, and a non-none backdrop-filter makes the element
+     a containing block for fixed descendants, so leaving it on pins this button to
+     the bottom of the controls panel instead of the screen — it looks almost right
+     and fails exactly where you cannot see it. Dropping the blur is also the
+     cheapest perf win available on a phone GPU. */
+  .controls { backdrop-filter: none; }
+  body[data-route="game"] .btn--drop {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 80;                    /* topbar 60, cheat panel 70, modals 100+ */
+    width: auto;
+    border-radius: 0;
+    border-width: 1px 0 0;
+    padding: 13px max(18px, env(safe-area-inset-right)) 13px max(18px, env(safe-area-inset-left));
+    padding-bottom: max(13px, env(safe-area-inset-bottom));
+  }
+  body[data-route="game"] .layout { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  /* Toasts must clear that bar, or every win notice lands under the button. */
+  body[data-route="game"] .toasts { bottom: calc(92px + env(safe-area-inset-bottom)); }
 }
 
 @media (max-width: 860px) {
-  .topbar__inner { padding: 8px 12px; gap: 8px; }
+  .topbar__inner {
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+    gap: 8px;
+  }
   .brand__text i { display: none; }
-  .game-nav { overflow-x: auto; max-width: 100%; scrollbar-width: none; }
-  .game-tab { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  .game-tab { padding: 6px 12px; font-size: 12px; }
   .board-footer { flex-wrap: wrap; gap: 10px 18px; }
   .stat-grid, .grid-2, .grid-3 { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
   .controls__scroll { grid-template-columns: 1fr; }
-  .board-stage { aspect-ratio: 1.2; max-height: 55vh; min-height: 290px; }
-  .topbar__actions .btn__label { display: none; }
-  .topbar__actions .btn { padding: 8px; }
+  .board-stage { aspect-ratio: 1.06; max-height: 62dvh; min-height: 320px; }
   .toasts { left: 12px; right: 12px; max-width: none; }
   .modal__body { padding: 14px; }
+
+  /* The header STAYS sticky. #balance-display is the only wallet readout in the
+     app, and a casino never lets the balance scroll off screen — every win would
+     land invisibly. It is affordable because .game-nav is gone above and the four
+     tool buttons that used to sit inside .wallet now live in .topbar__actions
+     (index.html), which cuts the phone header from three rows to two. */
 }
 
 @media (max-width: 520px) {
-  .board-stage { aspect-ratio: 1.1; max-height: 50vh; min-height: 250px; }
+  .board-stage { aspect-ratio: 1; max-height: 58dvh; min-height: 300px; }
   .wallet { padding: 5px 5px 5px 10px; }
   .wallet__meta small { display: none; }
   .wallet__amount { font-size: 13.5px; }
   .history-rail__label span { display: none; }
-  /* wallet + tools no longer fit on one line — wrap, and grow the height token
-     so every sticky offset derived from it (lobby toolbar, landscape stage) follows */
-  :root { --topbar-h: 104px; }
-  .topbar__inner { flex-wrap: wrap; row-gap: 8px; }
-  .wallet { flex: 1 1 auto; min-width: 0; }
-  .topbar__actions { flex: 0 0 auto; margin-left: auto; }
+  /* Two rows, both sticky: [brand · home · balance · deposit] then the tools.
+     --topbar-h is the MEASURED height of those rows and every sticky offset in
+     the app derives from it (AGENTS.md §10), so re-measure it — never guess —
+     whenever anything in this block changes. */
+  :root { --topbar-h: 112px; }
+  .topbar__inner { flex-wrap: wrap; row-gap: 6px; }
+  .brand__text { display: none; }
+  /* flex-basis MUST be 0, not auto: a wrapping flex container decides wrapping on
+     the item's base size, and the wallet's max-content (label + amount + Deposit)
+     is wide enough to claim its own row before min-width:0 ever gets consulted. */
+  .wallet { flex: 1 1 0; min-width: 0; }
+  .topbar__actions { flex: 1 0 100%; margin-left: 0; justify-content: flex-end; gap: 4px; }
+  /* Real 40px targets. css/gamdom.css loads after this file and squeezes the same
+     buttons to 5px padding, so these selectors are deliberately more specific. */
+  .topbar .topbar__actions .btn,
+  .topbar #btn-home,
+  .topbar #btn-deposit { min-width: 40px; min-height: 40px; padding: 8px; }
+  .topbar .wallet { gap: 6px; padding: 4px 6px 4px 10px; }
+  .topbar #btn-deposit span { display: none; }
+
+  /* Modals become bottom sheets. A centred 520px card on a 390px screen leaves
+     the content squeezed between two dead margins and puts the close button at
+     the top, out of thumb reach; a sheet uses the full width, opens where the
+     thumb already is, and keeps its own scroll. 88svh (not dvh) on purpose —
+     the sheet must not resize while the URL bar collapses under a scroll. */
+  .modal { padding: 0; place-items: end stretch; }
+  .modal__card,
+  .modal__card--wide {
+    width: 100%;
+    max-height: 88svh;
+    border-width: 1px 0 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    animation: sheetIn .28s var(--spring);
+  }
+  .modal__body {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+  }
 }
 
 @media (max-width: 380px) {
-  .board-stage { min-height: 220px; }
+  .board-stage { min-height: 280px; }
   .input-group { flex-wrap: wrap; }
   .input-group__actions { width: 100%; margin-top: 4px; }
 }
 
-@media (max-height: 540px) and (orientation: landscape) {
-  .board-stage { height: calc(100vh - var(--topbar-h) - 100px); min-height: 220px; }
+/* Short landscape viewports — a rotated phone or a small tablet on its side.
+   The fixed action bar itself comes from the <=1080px stacked-layout block above
+   (a rotated iPhone is 844px WIDE, so every max-width:720px rule misses it, but
+   1080 catches it). What is height-specific is the stage: it has to fit between
+   the header and that bar or the game becomes a letterbox slit you scroll to see.
+   Deliberately scoped to <=1080px as well, so a short WIDE desktop window keeps
+   its two-column layout and its in-sidebar bet button. */
+@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape) {
+  /* 390px of height, minus a 77px header and a 44px action bar, leaves ~245px
+     for everything else. The recent-results rail costs 53px of that and is pure
+     chrome, so it goes; the stage takes the rest. Measured before this block:
+     a 200px min-height put the board's bottom edge 11px UNDER the action bar. */
+  .history-rail { display: none; }
+  .board-stage {
+    height: calc(100dvh - var(--topbar-h) - 108px);
+    aspect-ratio: auto;
+    max-height: none;
+    min-height: 150px;
+  }
+  body[data-route="game"] .btn--drop {
+    padding-top: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  body[data-route="game"] .layout { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  body[data-route="game"] .toasts { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .hotkeys { display: none; }
+}
+
+/* Touch devices: real 44px targets.
+   `.game-tab` IS inside .topbar, whose height feeds --topbar-h and every sticky
+   offset derived from it (AGENTS.md §10). It is safe here only because the strip
+   is hidden below 720px and, above it, 44px still fits inside the 66px header.
+   Nothing else in the topbar gets a floor from this block — the tools cluster is
+   sized explicitly in the <=520px block instead, where the row is measured. */
+@media (pointer: coarse) {
+  .controls .btn,
+  .game-tab,
+  .chip-btn,
+  .segmented__btn,
+  .modal .btn { min-height: 44px; }
+  .chip-btn { min-width: 44px; }
+  .controls .btn--icon, .modal .btn--icon { min-width: 44px; }
+  /* Topbar chrome gets 40, not 44: the header's own min-height is 66px with 10px
+     of padding, so 40 is the largest floor that cannot grow --topbar-h and desync
+     every sticky offset derived from it (AGENTS.md §10). Measured 30x30 before. */
+  .topbar .btn { min-width: 40px; min-height: 40px; }
+  /* "Press Space" is noise without a keyboard. */
+  .btn--drop__sub { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

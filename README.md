@@ -129,6 +129,17 @@ chime, bust and card flip is generated — the project ships no audio files.
 state and switches every canvas stage to its static draw path. Canvas can't hear CSS, so each
 game reads the media query directly and subscribes to its `change` event.
 
+**Built for a phone, not shrunk onto one.** Below 1080px the layout stacks with the **game
+first** and the bet panel under it, and the primary action becomes a fixed, thumb-reachable
+bottom bar — the balance stays pinned in the header where a casino should keep it. The tab
+strip gives way to the lobby, which becomes the game switcher. Every one of the eleven canvas
+stages solves its own layout from the live canvas size rather than scaling a desktop design
+down: mines and keno re-pick their grid shape, hilo and blackjack re-fan their cards, twist
+and mines switch to a side-by-side arrangement on a landscape sliver. Tap targets are 44px,
+`env(safe-area-inset-*)` is respected on notched devices, modals open as bottom sheets, and a
+pull-down mid-round can't reload the page. Verified across 11 viewports from 320×568 to
+1920×1080, portrait and landscape.
+
 ---
 
 ## Provably fair
@@ -440,7 +451,8 @@ Modern evergreen browsers (ES modules, Canvas 2D, Web Audio, Web Crypto). Web Cr
 — a bundled SHA-256 fallback covers non-secure contexts.
 
 Keyboard-navigable throughout, ARIA labels on controls, focus trapping in modals, and full
-`prefers-reduced-motion` support. Responsive down to ~420px.
+`prefers-reduced-motion` support (51 running animations become 0). Responsive from 320px up,
+with 44px touch targets and safe-area insets on `pointer: coarse` devices.
 
 ---
 

@@ -42,6 +42,30 @@ const OUTCOME_BANNER = Object.freeze({
   push:      { text: 'PUSH',        color: T.PALETTE.textDim },
 });
 
+/* --- Responsive table geometry ------------------------------------------- */
+
+/** Card aspect (w/h), matching the 78x109 face theme.card() is tuned for. */
+const CARD_AR = 78 / 109;
+/** Card height ceiling, CSS px. Past this a 1200x760 desktop stage looks cartoonish. */
+const CARD_H_MAX = 128;
+/** Card height floor, CSS px. theme.card() clamps its index glyph at 9px, so below this the corner stops reading. */
+const CARD_H_MIN = 34;
+/**
+ * Fraction of a card that must stay exposed when a hand overlaps itself.
+ * theme.card() draws its index at 0.09w in a 0.21w glyph, so ~0.38w is what a
+ * two-glyph rank ('10') needs to survive the card stacked on top of it.
+ */
+const HAND_SPACING_MIN = 0.38;
+/** Hand length the table is sized for; longer hands tighten, then shrink. */
+const FIT_CARDS = 6;
+/** Below this card height a badge above the hand costs more than it is worth. */
+const STACK_MIN_CARD_H = 58;
+
+/** Clamp `v` into [lo, hi]. */
+function clampNum(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
 /** Clamp to the 0..1 unit range. */
 function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -469,10 +493,22 @@ export class BlackjackGame {
     this.stars = T.createStarfield(64, 0x2103);
     this.cardOpts = { rank: 'A', suit: 'spades', faceUp: true, glow: 0, glowColor: T.PALETTE.mint };
     this.lay = {
-      w: 0, h: 0, s: 1, cx: 400, cardW: 78, cardH: 109,
-      dealerY: 150, playerY: 340, badgeW: 132, badgeH: 34,
-      shoeW: 48, shoeH: 68, shoeX: 740, shoeY: 60,
+      w: 0, h: 0, s: 1, fs: 1, pad: 20, cx: 400,
+      cardW: 78, cardH: 109, cardBoxH: 126, fanRot: 0.2,
+      dealerY: 150, playerY: 340,
+      badgeSide: false, badgeW: 132, badgeH: 34, badgeGap: 8,
+      handMaxW: 760, handCx: 400,
+      titleH: 15, chipH: 30, footerY: 470,
+      showShoe: true, shoeW: 48, shoeH: 68, shoeX: 740, shoeY: 60,
     };
+    /** Per-hand fit, recomputed per row and reused so drawing allocates nothing. */
+    this.hm = { cw: 78, ch: 109, sp: 48, startX: 0 };
+    /** Scratch opts for captionFit(); theme.caption() never retains it. */
+    this.capOpts = {
+      size: 11, color: T.PALETTE.textFaint, align: 'center',
+      baseline: 'middle', weight: 700, spacing: false,
+    };
+    this._ro = null;
     this.felt = null;
     this.feltW = 0;
     this.feltH = 0;
@@ -975,6 +1011,12 @@ export class BlackjackGame {
         this.onWindowResize = () => this.resizeCanvas();
         window.addEventListener('resize', this.onWindowResize);
       }
+      // The stage host resizes with no window resize event of its own:
+      // orientation flips, the pane going visible, the sidebar collapsing.
+      if (typeof ResizeObserver !== 'undefined') {
+        this._ro = new ResizeObserver(() => this.resizeCanvas());
+        this._ro.observe(this.container || this.canvas.parentElement || this.canvas);
+      }
       this.startLoop();
     }
   }
@@ -988,10 +1030,12 @@ export class BlackjackGame {
     if (!this.canvas || !this.ctx) return;
     const cw = this.canvas.clientWidth;
     const ch = this.canvas.clientHeight;
-    this.applySize(
-      cw > 0 ? cw : (this.logicalWidth || 800),
-      ch > 0 ? ch : (this.logicalHeight || 500),
-    );
+    // A hidden pane measures 0. Sizing to a fallback would paint the table at a
+    // box the host never had and feed that width back to the layout; keep the
+    // last good size instead. The ResizeObserver fires the moment the pane gets
+    // a box, as does enterGame()'s rAF resize.
+    if (!(cw > 0) || !(ch > 0)) return;
+    this.applySize(cw, ch);
     this.render();
   }
 
@@ -1029,27 +1073,128 @@ export class BlackjackGame {
    * @returns {object} Layout metrics in CSS pixels.
    */
   computeLayout() {
-    const w = this.logicalWidth || 800;
-    const h = this.logicalHeight || 500;
     const L = this.lay;
-    const s = Math.max(0.62, Math.min(1.1, Math.min(w / 820, h / 560)));
+    const w = this.logicalWidth;
+    const h = this.logicalHeight;
+    if (!(w > 0) || !(h > 0)) return L; // hidden pane: keep the last good layout
+
+    const raw = Math.min(w / 820, h / 560);
+    // Geometry tracks the stage 1:1, type follows sqrt(raw): a linear type scale
+    // puts 4px labels on a 296px phone stage.
+    const s = clampNum(raw, 0.3, 1.15);
+    const fs = clampNum(Math.sqrt(raw), 0.62, 1.12);
+    const pad = Math.round(clampNum(Math.min(w, h) * 0.045, 8, 22));
+
+    const titleH = h >= 230 ? Math.round(15 * fs) : 0; // first thing to go on a 200px stage
+    const chipH = Math.round(clampNum(28 * fs, 19, 32));
+    const footerH = chipH + Math.round(9 * fs);
+    const badgeH = Math.round(clampNum(30 * fs, 19, 34));
+    const badgeGap = Math.round(4 + 4 * fs);
+    const fanRot = clampNum(0.2 * s, 0.07, 0.2);
+    // Vertical room one card really occupies: the fan rotates it and drops the
+    // outer cards, so a row is taller than cardH.
+    const boxK = Math.cos(fanRot) + CARD_AR * Math.sin(fanRot) + 0.05;
+
+    const bandTop = pad + titleH;
+    const bandH = Math.max(60, h - bandTop - pad - footerH);
+    let rowGap = Math.round(clampNum(18 * fs, 8, 26));
+
+    // A badge above the hand costs badgeH+gap of the row. When that starves the
+    // cards — phone landscape is ~800x200 — move it into the left gutter.
+    const stackedH = (bandH - rowGap - 2 * (badgeH + badgeGap)) / (2 * boxK);
+    const sideBadge = stackedH < STACK_MIN_CARD_H;
+    const badgeW = Math.round(clampNum(126 * fs, 72, Math.max(72, Math.min(150, w * 0.3))));
+    const headH = sideBadge ? 0 : badgeH + badgeGap;
+
+    const handLeft = pad + (sideBadge ? badgeW + Math.round(8 * fs) : 0);
+    const handMaxW = Math.max(60, w - pad - handLeft);
+
+    let cardH = clampNum(
+      sideBadge ? (bandH - rowGap) / (2 * boxK) : stackedH,
+      CARD_H_MIN, CARD_H_MAX,
+    );
+    let cardW = Math.round(cardH * CARD_AR);
+    // A 6-card hand is the design target: shrink the cards rather than let the
+    // fan run past the stage edge on a 296px phone.
+    const fitW = handMaxW / (1 + (FIT_CARDS - 1) * HAND_SPACING_MIN);
+    if (cardW > fitW) {
+      cardW = Math.max(24, Math.floor(fitW));
+      cardH = Math.round(cardW / CARD_AR);
+    }
+
+    const rowH = headH + cardH * boxK;
+    // Leftover height spreads the seats apart instead of pooling as dead felt.
+    const slack = bandH - (rowH * 2 + rowGap);
+    if (slack > 0) rowGap += Math.min(slack, bandH * 0.34);
+    const blockTop = bandTop + (bandH - (rowH * 2 + rowGap)) / 2;
 
     L.w = w;
     L.h = h;
     L.s = s;
+    L.fs = fs;
+    L.pad = pad;
     L.cx = Math.round(w / 2);
-    L.cardW = Math.round(78 * s);
-    L.cardH = Math.round(109 * s);
-    L.dealerY = Math.round(h * 0.30);
-    L.playerY = Math.round(h * 0.685);
-    L.badgeW = Math.round(136 * s);
-    L.badgeH = Math.round(34 * s);
-    L.shoeW = Math.round(L.cardW * 0.62);
-    L.shoeH = Math.round(L.cardH * 0.62);
-    L.shoeX = Math.round(w - L.shoeW / 2 - 30);
-    L.shoeY = Math.round(L.shoeH / 2 + 28);
+    L.cardW = cardW;
+    L.cardH = cardH;
+    L.cardBoxH = cardH * boxK;
+    L.fanRot = fanRot;
+    L.dealerY = Math.round(blockTop + headH + L.cardBoxH / 2);
+    L.playerY = Math.round(blockTop + rowH + rowGap + headH + L.cardBoxH / 2);
+    L.badgeSide = sideBadge;
+    L.badgeW = badgeW;
+    L.badgeH = sideBadge ? Math.round(Math.min(badgeH * 1.9, L.cardBoxH * 0.92)) : badgeH;
+    L.badgeGap = badgeGap;
+    L.handMaxW = handMaxW;
+    L.handCx = Math.round(handLeft + handMaxW / 2);
+    L.titleH = titleH;
+    L.chipH = chipH;
+    L.footerY = Math.round(h - pad - chipH);
+    // The shoe needs a top band to sit in; a 200px landscape stage has none, so
+    // cards fly in from just past the corner instead.
+    L.showShoe = h >= 250 && w >= 260;
+    L.shoeW = Math.round(cardW * 0.62);
+    L.shoeH = Math.round(cardH * 0.62);
+    L.shoeX = L.showShoe ? Math.round(w - pad - L.shoeW / 2) : Math.round(w + cardW * 0.5);
+    L.shoeY = L.showShoe ? Math.round(pad + L.shoeH / 2) : Math.round(-cardH * 0.4);
 
     return L;
+  }
+
+  /**
+   * Fit `n` cards into the row: tighten the overlap to the legibility floor
+   * first, then scale the fan down. Written into a persistent object so the
+   * draw path allocates nothing per frame.
+   *
+   * @param {number} n Cards in the hand.
+   * @returns {{cw: number, ch: number, sp: number, startX: number}}
+   */
+  handMetrics(n) {
+    const L = this.lay;
+    const m = this.hm;
+    let cw = L.cardW;
+    let ch = L.cardH;
+    let sp = cw * (n > 4 ? 0.5 : 0.62);
+    let total = cw + (n - 1) * sp;
+
+    if (n > 1 && total > L.handMaxW) {
+      sp = Math.max(cw * HAND_SPACING_MIN, (L.handMaxW - cw) / (n - 1));
+      total = cw + (n - 1) * sp;
+      if (total > L.handMaxW) {
+        // Overlap is already at the floor: shrink the cards themselves. Only a
+        // hand past ~9 cards gets here, and it still beats running off-stage.
+        const k = L.handMaxW / total;
+        cw *= k;
+        ch *= k;
+        sp *= k;
+        total = L.handMaxW;
+      }
+    }
+
+    m.cw = cw;
+    m.ch = ch;
+    m.sp = sp;
+    m.startX = L.handCx - total / 2 + cw / 2;
+    return m;
   }
 
   /**
@@ -1143,12 +1288,16 @@ export class BlackjackGame {
       glowY: 0.54,
       glowStrength: 0.06,
     });
-    this.drawTable(ctx, w, h);
+    this.drawTable(ctx, w, h, L);
     this.drawShoe(ctx, L);
 
-    T.caption(ctx, 'BLACKJACK  \u00b7  PAYS 3:2', 26, 28, {
-      align: 'left', size: Math.max(9, 10 * L.s),
-    });
+    if (L.titleH) {
+      const titleRight = L.showShoe ? L.shoeX - L.shoeW / 2 : w - L.pad;
+      this.captionFit(
+        ctx, 'BLACKJACK  \u00b7  PAYS 3:2', L.pad, L.pad + L.titleH / 2,
+        titleRight - L.pad * 2, Math.max(8.5, 10 * L.fs), T.PALETTE.textFaint, 'left',
+      );
+    }
 
     this.drawHand(ctx, dealerHand, L.dealerY, L, now, dScore);
     this.drawHand(ctx, playerHand, L.playerY, L, now, pScore);
@@ -1171,7 +1320,7 @@ export class BlackjackGame {
    * Dark table surface: a deep-green bloom that still reads as felt, an
    * elliptical table edge, and a thin rounded rail in theme tokens.
    */
-  drawTable(ctx, w, h) {
+  drawTable(ctx, w, h, L) {
     if (!this.felt || this.feltW !== w || this.feltH !== h) {
       const cx = w / 2;
       const cy = h * 0.54;
@@ -1194,29 +1343,35 @@ export class BlackjackGame {
     ctx.ellipse(w / 2, h * 0.58, w * 0.44, h * 0.46, 0, 0, Math.PI * 2);
     ctx.stroke();
 
+    // Rails ride the frame inset so they never eat a 296px stage's card room.
+    const in1 = Math.max(6, Math.round(L.pad * 0.55));
+    const in2 = in1 + Math.max(3, Math.round(L.pad * 0.2));
+    const r1 = Math.max(10, Math.round(L.pad * 0.9));
+
     ctx.strokeStyle = T.alpha(T.PALETTE.slateHi, 0.7);
     ctx.lineWidth = 1.5;
-    T.roundRect(ctx, 12, 12, w - 24, h - 24, 20);
+    T.roundRect(ctx, in1, in1, w - in1 * 2, h - in1 * 2, r1);
     ctx.stroke();
 
     ctx.strokeStyle = T.alpha(T.PALETTE.mint, 0.1);
     ctx.lineWidth = 1;
-    T.roundRect(ctx, 16, 16, w - 32, h - 32, 17);
+    T.roundRect(ctx, in2, in2, w - in2 * 2, h - in2 * 2, Math.max(6, r1 - (in2 - in1)));
     ctx.stroke();
     ctx.restore();
   }
 
   /** Card shoe in the top-right corner: every card is dealt out of here. */
   drawShoe(ctx, L) {
+    if (!L.showShoe) return;
+    const step = Math.max(2, Math.round(L.shoeW * 0.06));
     for (let i = 2; i >= 0; i--) {
       this.drawCardAt(
-        ctx, L.shoeX - i * 3, L.shoeY - i * 3, L.shoeW, L.shoeH,
+        ctx, L.shoeX - i * step, L.shoeY - i * step, L.shoeW, L.shoeH,
         SHOE_ROT, BACK_CARD, 1, 1 - i * 0.22,
       );
     }
-    T.caption(ctx, 'SHOE', L.shoeX, L.shoeY + L.shoeH * 0.72 + 12, {
-      size: Math.max(8.5, 9 * L.s),
-    });
+    const size = Math.max(8, 9 * L.fs);
+    T.caption(ctx, 'SHOE', L.shoeX, L.shoeY + L.shoeH * 0.72 + size, { size });
   }
 
   /**
@@ -1259,8 +1414,7 @@ export class BlackjackGame {
     const n = cards ? cards.length : 0;
     if (!n) return;
 
-    const spacing = L.cardW * (n > 4 ? 0.5 : 0.62);
-    const startX = L.cx - (L.cardW + (n - 1) * spacing) / 2 + L.cardW / 2;
+    const m = this.handMetrics(n);
     const opts = this.cardOpts;
 
     let handGlow = 0;
@@ -1278,9 +1432,9 @@ export class BlackjackGame {
       if (!card) continue;
 
       const fan = n > 1 ? i / (n - 1) - 0.5 : 0;
-      const tx = startX + i * spacing;
-      const ty = cy + Math.abs(fan) * L.cardH * 0.07;
-      const trot = fan * 0.2;
+      const tx = m.startX + i * m.sp;
+      const ty = cy + Math.abs(fan) * m.ch * 0.07;
+      const trot = fan * L.fanRot;
 
       let x = tx;
       let y = ty;
@@ -1314,7 +1468,7 @@ export class BlackjackGame {
       opts.faceUp = faceUp;
       opts.glow = faceUp ? handGlow : 0;
       opts.glowColor = handGlowColor;
-      this.drawCardAt(ctx, x, y, L.cardW, L.cardH, rot, opts, flip, 1);
+      this.drawCardAt(ctx, x, y, m.cw, m.ch, rot, opts, flip, 1);
     }
   }
 
@@ -1375,17 +1529,38 @@ export class BlackjackGame {
       value = `${score.score} SOFT`;
     }
 
-    const bw = L.badgeW;
     const bh = L.badgeH;
-    const x = L.cx - bw / 2;
-    const y = handY - L.cardH / 2 - 12 - bh;
+    const labelSize = Math.max(8.5, 9.5 * L.fs);
+    const valueSize = Math.max(10.5, 13.5 * L.fs);
 
-    T.panel(ctx, x, y, bw, bh, { radius: 10, accent: col });
-    T.caption(ctx, label, x + 12, y + bh / 2, {
-      align: 'left', size: Math.max(9, 9.5 * L.s), color: T.PALETTE.textFaint,
+    if (L.badgeSide) {
+      // Short landscape stage: the badge moves into the left gutter as label
+      // over value, leaving the whole row height to the cards.
+      const x = L.pad;
+      const y = Math.round(handY - bh / 2);
+      const inner = L.badgeW - Math.max(10, 14 * L.fs);
+      T.panel(ctx, x, y, L.badgeW, bh, { radius: Math.max(6, 9 * L.fs), accent: col });
+      this.captionFit(ctx, label, x + L.badgeW / 2, y + bh * 0.31, inner, labelSize, T.PALETTE.textFaint);
+      this.captionFit(ctx, value, x + L.badgeW / 2, y + bh * 0.71, inner, valueSize, col, 'center', 800);
+      return;
+    }
+
+    // Stacked: the pill is measured to its own text, so 'BLACKJACK' can never
+    // collide with the seat label the way a fixed width did at 296px.
+    const padX = Math.max(8, 12 * L.fs);
+    const gap = Math.max(10, 16 * L.fs);
+    const lw = this.measureCaption(ctx, label, labelSize, 700);
+    const vw = this.measureCaption(ctx, value, valueSize, 800);
+    const bw = Math.min(L.handMaxW, Math.max(L.badgeW * 0.7, lw + vw + gap + padX * 2));
+    const x = Math.round(L.handCx - bw / 2);
+    const y = Math.round(handY - L.cardBoxH / 2 - L.badgeGap - bh);
+
+    T.panel(ctx, x, y, bw, bh, { radius: Math.max(6, 10 * L.fs), accent: col });
+    T.caption(ctx, label, x + padX, y + bh / 2, {
+      align: 'left', size: labelSize, color: T.PALETTE.textFaint,
     });
-    T.caption(ctx, value, x + bw - 12, y + bh / 2, {
-      align: 'right', size: Math.max(11, 13 * L.s), weight: 800, color: col,
+    T.caption(ctx, value, x + bw - padX, y + bh / 2, {
+      align: 'right', size: valueSize, weight: 800, color: col,
     });
   }
 
@@ -1406,28 +1581,30 @@ export class BlackjackGame {
     if (!preset) return;
 
     const text = (result === 'loss' && pScore.isBust) ? 'BUST' : preset.text;
-    // centre in the gap between the dealer cards and the player badge
-    const gapTop = L.dealerY + L.cardH / 2;
-    const gapBottom = L.playerY - L.cardH / 2 - 12 - L.badgeH;
-    const y = (gapTop + gapBottom) / 2;
-    const bw = Math.min(w - 60, 420 * L.s);
-    const bh = 66 * L.s;
+    // Midway between the seats. On a short stage the rows nearly touch, so the
+    // banner rides over them on its own backdrop rather than being squeezed out.
+    const y = Math.round((L.dealerY + L.playerY) / 2);
+    const bh = Math.round(clampNum(66 * L.fs, 40, 78));
+    const bw = Math.round(Math.min(w - L.pad * 4, Math.max(170, 420 * L.fs)));
+    const r = Math.max(10, 16 * L.fs);
+    // 900-weight Inter runs ~0.68em per glyph; fit the word, then the box.
+    const size = Math.min(Math.max(20, 38 * L.fs), (bw - r * 2) / (text.length * 0.68));
 
     ctx.save();
     ctx.fillStyle = 'rgba(4, 8, 14, 0.62)';
-    T.roundRect(ctx, L.cx - bw / 2, y - bh / 2, bw, bh, 16);
+    T.roundRect(ctx, L.cx - bw / 2, y - bh / 2, bw, bh, r);
     ctx.fill();
     ctx.strokeStyle = T.alpha(preset.color, 0.35);
     ctx.lineWidth = 1;
-    T.roundRect(ctx, L.cx - bw / 2 + 0.5, y - bh / 2 + 0.5, bw - 1, bh - 1, 16);
+    T.roundRect(ctx, L.cx - bw / 2 + 0.5, y - bh / 2 + 0.5, bw - 1, bh - 1, r);
     ctx.stroke();
     ctx.restore();
 
-    T.heroText(ctx, text, L.cx, y - 7 * L.s, {
-      size: Math.max(24, 38 * L.s), color: preset.color, blur: 26,
-    });
-    T.caption(ctx, payout > 0 ? `PAYOUT $${payout.toFixed(2)}` : `LOST $${wager.toFixed(2)}`,
-      L.cx, y + 24 * L.s, { size: Math.max(9, 10.5 * L.s), color: T.PALETTE.textDim });
+    T.heroText(ctx, text, L.cx, y - bh * 0.13, { size, color: preset.color, blur: 26 });
+    this.captionFit(
+      ctx, payout > 0 ? `PAYOUT $${payout.toFixed(2)}` : `LOST $${wager.toFixed(2)}`,
+      L.cx, y + bh * 0.3, bw - r * 2, Math.max(8.5, 10.5 * L.fs), T.PALETTE.textDim,
+    );
   }
 
   /**
@@ -1440,29 +1617,92 @@ export class BlackjackGame {
    * @param {number} wager
    */
   drawFooter(ctx, w, h, L, status, wager) {
-    const chipW = Math.round(120 * L.s);
-    const chipH = Math.round(30 * L.s);
-    const chipY = h - chipH - 20;
+    const chipH = L.chipH;
+    const chipY = L.footerY;
     const doubled = wager > this.betAmount;
+    let statusLeft = L.pad;
 
     if (wager > 0) {
-      T.chip(ctx, 24, chipY, chipW, chipH, {
+      const label = `$${wager.toFixed(2)}${doubled ? ' \u00d72' : ''}`;
+      // theme.chip() centres its label at 0.42h in mono and does not wrap, so
+      // the pill is measured to the wager instead of clipping a five-figure one.
+      ctx.save();
+      ctx.font = `800 ${Math.round(chipH * 0.42)}px 'Roboto Mono', monospace`;
+      const lw = ctx.measureText(label).width;
+      ctx.restore();
+      const chipW = Math.round(Math.min(w * 0.42, Math.max(chipH * 2.6, lw + chipH * 1.2)));
+
+      T.chip(ctx, L.pad, chipY, chipW, chipH, {
         color: doubled ? T.PALETTE.gold : T.PALETTE.mint,
-        label: `$${wager.toFixed(2)}${doubled ? ' \u00d72' : ''}`,
-        radius: 9,
+        label,
+        radius: Math.max(6, 9 * L.fs),
       });
-      T.caption(ctx, doubled ? 'DOUBLED' : 'BET', 24 + chipW + 12, chipY + chipH / 2, {
-        align: 'left', size: Math.max(8.5, 9 * L.s),
-      });
+      statusLeft = L.pad + chipW + Math.round(10 * L.fs);
+
+      // The BET/DOUBLED tag is the first thing to drop: below ~420px the status
+      // line needs every pixel of the footer it can get.
+      if (w >= 420) {
+        const tag = doubled ? 'DOUBLED' : 'BET';
+        const tagSize = Math.max(8.5, 9 * L.fs);
+        T.caption(ctx, tag, statusLeft, chipY + chipH / 2, { align: 'left', size: tagSize });
+        statusLeft += this.measureCaption(ctx, tag, tagSize, 700) + Math.round(10 * L.fs);
+      }
     }
 
-    T.caption(ctx, status, w - 24, chipY + chipH / 2, {
-      align: 'right', size: Math.max(9, 10.5 * L.s), color: T.PALETTE.textDim,
-    });
+    this.captionFit(
+      ctx, status, w - L.pad, chipY + chipH / 2, w - L.pad - statusLeft,
+      Math.max(8.5, 10.5 * L.fs), T.PALETTE.textDim, 'right',
+    );
+  }
+
+  /**
+   * Width of a theme.caption() string at `size`, in CSS px.
+   * @returns {number}
+   */
+  measureCaption(ctx, text, size, weight) {
+    ctx.save();
+    ctx.font = `${weight} ${size}px Inter, sans-serif`;
+    const width = ctx.measureText(String(text).toUpperCase()).width;
+    ctx.restore();
+    return width;
+  }
+
+  /**
+   * theme.caption() that always fits `maxW`: shrink toward 7.5px first, then
+   * ellipsize. Status lines like 'DEALER BUST (24) - YOU WIN 20.00' otherwise
+   * run straight off a 296px stage.
+   *
+   * @returns {number} The size actually drawn.
+   */
+  captionFit(ctx, text, x, y, maxW, size, color, align = 'center', weight = 700) {
+    let str = String(text).toUpperCase();
+    let px = size;
+
+    ctx.save();
+    ctx.font = `${weight} ${px}px Inter, sans-serif`;
+    const natural = ctx.measureText(str).width;
+    if (natural > maxW && natural > 0) {
+      px = Math.max(7.5, px * (maxW / natural));
+      ctx.font = `${weight} ${px}px Inter, sans-serif`;
+      if (ctx.measureText(str).width > maxW) {
+        while (str.length > 1 && ctx.measureText(`${str}\u2026`).width > maxW) str = str.slice(0, -1);
+        str = `${str}\u2026`;
+      }
+    }
+    ctx.restore();
+
+    const o = this.capOpts;
+    o.size = px;
+    o.color = color;
+    o.align = align;
+    o.weight = weight;
+    T.caption(ctx, str, x, y, o);
+    return px;
   }
 
   destroy() {
     this.stopLoop();
+    if (this._ro) { this._ro.disconnect(); this._ro = null; }
     if (typeof window !== 'undefined' && this.onWindowResize) {
       window.removeEventListener('resize', this.onWindowResize);
     }

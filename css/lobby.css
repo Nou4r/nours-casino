@@ -46,9 +46,17 @@
 .lobby {
   --lobby-max: 1560px;
   --lobby-pad: clamp(12px, 1.8vw, 22px);
+  /* The lobby is the top-level scroll surface, so its gutters ARE the
+     screen's. A notched phone in landscape puts the cutout inside the
+     left/right inset, which would otherwise shave the first column. */
+  --lobby-pad-l: max(var(--lobby-pad), env(safe-area-inset-left));
+  --lobby-pad-r: max(var(--lobby-pad), env(safe-area-inset-right));
   --hair: rgba(255, 255, 255, .075);
   --hair-hi: rgba(255, 255, 255, .13);
-  --card-r: 16px;
+  --card-r: clamp(13px, 3.2vw, 16px);
+  /* One knob for card rhythm — the art frame reads it raw, the text rows add
+     2px so the copy stays optically inset from the artwork above it. */
+  --card-pad: clamp(9px, 2.4vw, 13px);
   --card-surface: linear-gradient(180deg, #141c28 0%, #0d131d 62%, #0a0f18 100%);
   --card-sheen: linear-gradient(168deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .012) 42%, rgba(255, 255, 255, 0) 72%);
 }
@@ -88,7 +96,7 @@ body[data-route="lobby"] #btn-home { display: none; }
 .lobby {
   position: relative;
   isolation: isolate;
-  padding-block: clamp(10px, 1.6vw, 20px) clamp(30px, 5vw, 68px);
+  padding-block: clamp(10px, 1.6vw, 20px) calc(clamp(30px, 5vw, 68px) + env(safe-area-inset-bottom));
 }
 
 /* Fine dot texture, masked so it only survives near the top of the page. */
@@ -115,7 +123,7 @@ body[data-route="lobby"] #btn-home { display: none; }
   z-index: 2;
   max-width: var(--lobby-max);
   margin-inline: auto;
-  padding-inline: var(--lobby-pad);
+  padding-inline: var(--lobby-pad-l) var(--lobby-pad-r);
 }
 
 /* --------------------------------------------------- Ambient colour orbs */
@@ -183,14 +191,20 @@ body[data-route="lobby"] #btn-home { display: none; }
   grid-template-columns: minmax(0, 1fr) minmax(260px, 400px);
   gap: clamp(20px, 4vw, 60px);
   align-items: center;
-  padding-block: clamp(26px, 4.4vw, 58px) clamp(20px, 2.8vw, 38px);
+  /* Height-aware so one rule covers every phone: at 390x844 the vw term wins
+     and the hero computes to 220px, putting the first card row at y=464 with
+     its bottom at 675 — clear of even Safari's 733px expanded-UI fold. On a
+     landscape phone the dvh term takes over and tightens it further. */
+  padding-block:
+    clamp(16px, min(4.4vw, 5.4dvh), 58px)
+    clamp(12px, min(2.8vw, 3.2dvh), 38px);
 }
 
 .lobby-hero__copy {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: clamp(12px, 1.4vw, 18px);
+  gap: clamp(8px, 1.4vw, 18px);
   min-width: 0;
 }
 
@@ -231,7 +245,11 @@ body[data-route="lobby"] #btn-home { display: none; }
 /* ----------------------------------------------------------------- Title */
 
 .lobby-hero__title {
-  font-size: clamp(40px, 6.6vw, 76px);
+  /* 30px floor, not 40: at 390px the old floor alone ate 40px of a first
+     screen that now has to seat the toolbar and a card row too. The dvh term
+     is what saves a landscape phone — 7.2vw of 800px is a 58px headline on a
+     360px-tall screen, which is the whole viewport gone before a card. */
+  font-size: clamp(30px, min(7.2vw, 9dvh), 76px);
   font-weight: 900;
   line-height: .94;
   letter-spacing: -.035em;
@@ -252,7 +270,7 @@ body[data-route="lobby"] #btn-home { display: none; }
 
 .lobby-hero__sub {
   max-width: 52ch;
-  font-size: clamp(13.5px, 1.1vw, 15.5px);
+  font-size: clamp(12.6px, 1.1vw, 15.5px);
   font-weight: 500;
   line-height: 1.62;
   color: var(--text-dim);
@@ -268,8 +286,8 @@ body[data-route="lobby"] #btn-home { display: none; }
 }
 
 .btn--lg {
-  padding: 13px 22px;
-  font-size: 14.5px;
+  padding: 13px clamp(12px, 2.4vw, 22px);
+  font-size: clamp(12.6px, 1.6vw, 14.5px);
   letter-spacing: .015em;
   border-radius: 11px;
 }
@@ -282,15 +300,17 @@ body[data-route="lobby"] #btn-home { display: none; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
-  margin: clamp(6px, 1vw, 12px) 0 0;
+  /* No top margin — .lobby-hero__copy's gap already spaces this row, and the
+     two used to stack into ~15px of dead air above the strip. */
+  margin: 0;
 }
 
 .lobby-stat {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 11px 13px;
-  border-radius: 12px;
+  gap: 2px;
+  padding: clamp(8px, 1.1vw, 11px) clamp(10px, 1.3vw, 13px);
+  border-radius: clamp(10px, 2.4vw, 12px);
   border: 1px solid var(--hair);
   background: var(--card-sheen), rgba(17, 24, 35, .62);
   backdrop-filter: blur(10px) saturate(140%);
@@ -298,7 +318,9 @@ body[data-route="lobby"] #btn-home { display: none; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
 }
 .lobby-stat dt {
-  font-size: 9.5px;
+  font-size: clamp(9px, .8vw, 9.5px);
+  /* The strip scrolls on phones, so a label may never buy a second line. */
+  white-space: nowrap;
   font-weight: 800;
   letter-spacing: .13em;
   text-transform: uppercase;
@@ -307,7 +329,7 @@ body[data-route="lobby"] #btn-home { display: none; }
 .lobby-stat dd {
   margin: 0;
   font-family: 'Roboto Mono', ui-monospace, monospace;
-  font-size: clamp(14.5px, 1.4vw, 19px);
+  font-size: clamp(13.6px, 1.4vw, 19px);
   font-weight: 700;
   letter-spacing: -.02em;
   color: var(--text);
@@ -388,7 +410,7 @@ body[data-route="lobby"] #btn-home { display: none; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-block: 13px;
+  padding-block: clamp(10px, 1.4vw, 13px);
 }
 /* Full-bleed tint so cards scrolling under the bar stay legible. */
 .lobby-toolbar::before {
@@ -421,6 +443,13 @@ body[data-route="lobby"] #btn-home { display: none; }
   transition: color .2s var(--ease);
 }
 .lobby-search .input {
+  /* An <input> carries a default `size` attribute, so its min-content width is
+     ~20 characters (~380px measured). As a flex item its automatic minimum size
+     is that min-content, which no amount of stretching on the parent can shrink
+     below — at 360px that pushed the whole lobby column to 391px and took the
+     document 55px wide, dragging even position:fixed toasts out with it. */
+  min-width: 0;
+  width: 100%;
   padding: 11px 14px 11px 38px;
   font-size: 13.5px;
   font-weight: 600;
@@ -455,6 +484,8 @@ body[data-route="lobby"] #btn-home { display: none; }
   gap: 7px;
   min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
   scrollbar-width: none;
   padding: 2px;
   margin: -2px;
@@ -463,6 +494,9 @@ body[data-route="lobby"] #btn-home { display: none; }
 
 .lobby-filter {
   flex: none;
+  scroll-snap-align: start;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   padding: 8px 15px;
   border-radius: 999px;
   font-size: 12.5px;
@@ -484,6 +518,8 @@ body[data-route="lobby"] #btn-home { display: none; }
   border-color: rgba(148, 163, 184, .26);
   transform: translateY(-1px);
 }
+/* Touch feedback — a chip that is only ever tapped never sees :hover. */
+.lobby-filter:active { transform: scale(.96); }
 .lobby-filter.is-active {
   color: var(--ink);
   background: linear-gradient(135deg, var(--mint), #10b981);
@@ -497,9 +533,11 @@ body[data-route="lobby"] #btn-home { display: none; }
 
 .lobby-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(230px, 24vw, 290px), 1fr));
-  gap: 18px;
-  padding-block: clamp(18px, 2.4vw, 30px);
+  /* Column COUNT is pinned per breakpoint in the responsive section; auto-fill
+     only runs above 1200px, where there is room for a fifth card. */
+  grid-template-columns: repeat(auto-fill, minmax(clamp(232px, 19vw, 286px), 1fr));
+  gap: clamp(10px, 1.5vw, 18px);
+  padding-block: clamp(12px, 2.4vw, 30px);
 }
 
 .game-card.is-hidden { display: none; }
@@ -514,6 +552,10 @@ body[data-route="lobby"] #btn-home { display: none; }
   padding: 0;
   overflow: hidden;
   text-align: left;
+  /* The whole button is the target; kill the 300ms tap delay and the grey
+     flash so a card press feels native. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   color: var(--text);
   border: 1px solid var(--hair);
   border-radius: var(--card-r);
@@ -583,15 +625,17 @@ body[data-route="lobby"] #btn-home { display: none; }
   position: relative;
   z-index: 1;
   display: block;
-  padding: 13px 13px 0;
+  padding: var(--card-pad) var(--card-pad) 0;
 }
 
 .card-art {
   display: block;
   width: 100%;
   height: auto;
+  /* Matches the scenes' viewBox exactly. Any other ratio letterboxes them —
+     `preserveAspectRatio` is an attribute and CSS cannot reach it. */
   aspect-ratio: 160 / 100;
-  border-radius: 10px;
+  border-radius: clamp(8px, 2vw, 10px);
   overflow: hidden;
   background: #0b111e;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05);
@@ -624,19 +668,26 @@ body[data-route="lobby"] #btn-home { display: none; }
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 13px 15px 0;
+  gap: 3px;
+  padding: var(--card-pad) calc(var(--card-pad) + 2px) 0;
 }
 .game-card__name {
-  font-size: 15.5px;
+  font-size: clamp(13.4px, calc(9.5px + .45vw), 15.5px);
   font-weight: 800;
   letter-spacing: -.012em;
   color: var(--text);
 }
 .game-card__desc {
-  font-size: 12.3px;
+  /* Two lines hard: at two columns the longest blurb runs to three and drags
+     the whole row taller than the art it belongs to. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: clamp(11.4px, calc(8.6px + .28vw), 12.3px);
   font-weight: 500;
-  line-height: 1.45;
+  line-height: 1.42;
   color: var(--text-dim);
 }
 
@@ -644,17 +695,20 @@ body[data-route="lobby"] #btn-home { display: none; }
   position: relative;
   z-index: 1;
   display: flex;
+  /* Below ~130px of content width the badge and the live count stop sharing a
+     line; wrapping is the only failure mode that neither clips nor overflows. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 13px 15px 14px;
+  gap: 6px 10px;
+  padding: var(--card-pad) calc(var(--card-pad) + 2px) calc(var(--card-pad) + 1px);
 }
 
 .game-card__badge {
-  padding: 4px 9px;
+  padding: 4px clamp(7px, 1.6vw, 9px);
   border-radius: 7px;
   font-family: 'Roboto Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: clamp(10.2px, calc(8.4px + .18vw), 11px);
   font-weight: 700;
   letter-spacing: .01em;
   white-space: nowrap;
@@ -673,7 +727,7 @@ body[data-route="lobby"] #btn-home { display: none; }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: clamp(9.8px, calc(8.5px + .14vw), 10.5px);
   font-weight: 600;
   white-space: nowrap;
   color: var(--text-faint);
@@ -703,15 +757,15 @@ body[data-route="lobby"] #btn-home { display: none; }
 
 .game-card__cta {
   position: absolute;
-  right: 21px;
-  top: 21px;
+  right: calc(var(--card-pad) + 8px);
+  top: calc(var(--card-pad) + 8px);
   z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 13px;
+  padding: clamp(5px, 1.4vw, 7px) clamp(9px, 2.4vw, 13px);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: clamp(10.4px, 1vw, 12px);
   font-weight: 800;
   letter-spacing: .02em;
   color: var(--ink);
@@ -1201,32 +1255,42 @@ body[data-route="lobby"] #btn-home { display: none; }
 }
 
 /* ========================================================== Responsive */
+/* Column ladder: 4+ above 1200 (auto-fill finds a fifth past ~1500), then
+   4 / 3 / 2. The two-column step sits at 600, not 520: the card foot needs
+   ~151px of content width to keep the badge and "N playing" on one line, and
+   three columns stop clearing that at about 580px. 600 is the safe side. */
 
 @media (max-width: 1200px) {
   .lobby-hero {
     grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
     gap: clamp(18px, 3vw, 40px);
   }
-  .lobby-grid { gap: 16px; }
+  .lobby-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 980px) {
-  .lobby-hero {
-    grid-template-columns: minmax(0, 1fr);
-    padding-block: clamp(22px, 5vw, 40px) clamp(16px, 3vw, 26px);
-  }
+  .lobby-hero { grid-template-columns: minmax(0, 1fr); }
   .lobby-hero__art { display: none; }
   .lobby-hero__sub { max-width: 60ch; }
+  .lobby-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
+  /* Static, not sticky: the topbar is already 76-112px here and the lobby IS
+     the game switcher below 1080px, so a second pinned bar would spend ~200px
+     of a ~740px viewport on chrome. The cards win the space. */
   .lobby > .lobby-toolbar {
-    /* The topbar stops being a single row here, so pinning the toolbar under
-       a moving offset just makes it jitter. */
     position: static;
     align-items: stretch;
     flex-direction: column;
-    gap: 10px;
+    /* nowrap is load-bearing, not tidiness. In a WRAPPING flex container each
+       line's cross size comes from its own items, so `align-items: stretch`
+       stretches the search field to the LINE (its 391px max-content) instead of
+       to the 336px container — measured, that dragged the whole lobby column
+       55px wide and took position:fixed toasts out with it. */
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding-block: 10px;
   }
   .lobby-toolbar::before { border-bottom: 0; }
   /* The toolbar's main axis is now vertical, so the search field's
@@ -1234,29 +1298,87 @@ body[data-route="lobby"] #btn-home { display: none; }
   .lobby-search {
     flex: none;
     max-width: none;
+    min-width: 0;
   }
-  .lobby-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .lobby-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 16px is the iOS threshold: any smaller and focusing the field zooms the
+     whole viewport, reflowing the lobby under the player's thumb. */
+  .lobby-search .input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* One scrollable row, edge to edge. The chips line up with the cards but the
+     strip runs out into the gutter, so the clipped last chip reads as "more"
+     instead of the five-chip block wrapping into two rows. */
+  .lobby-filters {
+    /* Bleed the scroll strip to both screen edges while the first chip stays
+       aligned with the cards. 4px of block padding, not 0: overflow-x:auto
+       computes overflow-y to auto too, and the global 2px focus ring with its
+       2px offset would otherwise be clipped by the scroll container. */
+    margin: -4px calc(var(--lobby-pad-r) * -1) -4px calc(var(--lobby-pad-l) * -1);
+    padding: 4px var(--lobby-pad-r) 4px var(--lobby-pad-l);
+    gap: 6px;
+  }
+  .lobby-filter {
+    min-height: 44px;
+    padding-inline: 16px;
+  }
+
+  .lobby-hero__sub { line-height: 1.5; }
+  .lobby-hero__actions { gap: 8px; width: 100%; }
   .lobby-hero__actions .btn--lg { flex: 1 1 auto; }
+
+  /* Four stat cards cannot afford two 2-up rows (~120px) and still leave a card
+     row above the fold. One swipeable row keeps every figure at full size — the
+     alternative, a 4-wide grid, wraps the labels and clips "$1,000.00". */
+  .lobby-stats {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(max-content, 1fr);
+    gap: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    /* width:auto + stretch, NOT the inherited width:100%: an explicit width
+       plus negative margins only SHIFTS the box left, while a stretched item
+       resolves to container + both margins, which is the actual bleed. */
+    width: auto;
+    align-self: stretch;
+    margin-inline: calc(var(--lobby-pad-l) * -1) calc(var(--lobby-pad-r) * -1);
+    padding-inline: var(--lobby-pad-l) var(--lobby-pad-r);
+  }
+  .lobby-stats::-webkit-scrollbar { display: none; }
+  .lobby-stat { scroll-snap-align: start; }
+
   /* The lobby is the only way back to the games once .game-nav starts
      scrolling, so the home button must survive every narrow breakpoint. */
   body[data-route="game"] #btn-home { display: inline-flex; }
 }
 
+@media (max-width: 600px) {
+  .lobby-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 520px) {
-  .lobby { padding-block: 6px clamp(24px, 8vw, 44px); }
+  .lobby { padding-block: 4px calc(clamp(24px, 8vw, 44px) + env(safe-area-inset-bottom)); }
   .lobby-hero__title { letter-spacing: -.028em; }
-  .lobby-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
-  }
+  .lobby__orb { filter: blur(64px); }
+}
+
+/* Touch: :hover never fires on a tap-and-lift, so the CTA cannot be a hover
+   reveal — it is simply always on. The parked scene flourishes stay parked by
+   design; eleven card animations at once is a battery bill, not a lobby. */
+@media (hover: none) {
   .game-card__cta {
-    right: 18px;
-    top: 18px;
     opacity: 1;
     transform: none;
   }
-  .lobby__orb { filter: blur(64px); }
+  .lobby-filter { min-height: 44px; }
+  .lobby-search .input { min-height: 44px; }
+  /* styles.css floors .controls/.modal buttons but nothing in the lobby, and
+     these two are the first thing a thumb reaches on the first screen. */
+  .lobby-hero__actions .btn { min-height: 44px; }
 }
 
 /* ====================================================== Reduced motion */
@@ -1282,7 +1404,8 @@ body[data-route="lobby"] #btn-home { display: none; }
   #lobby .game-card:hover,
   #lobby .game-card:focus-visible,
   #lobby .game-card:active { transform: none; }
-  #lobby .lobby-filter:hover { transform: none; }
+  #lobby .lobby-filter:hover,
+  #lobby .lobby-filter:active { transform: none; }
   #btn-home:hover,
   #btn-home:active { transform: none; }
 

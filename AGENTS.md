@@ -33,7 +33,7 @@ for f in js/*.js js/games/*.js js/math/*.js js/render/*.js; do node --check "$f"
 ## 2. Layout
 
 ```
-index.html           1372 lines   All markup: topbar, lobby screen + 11 inline SVG card scenes, sidebar control panes, stage views, modals, cheat panel, account + customize modals, SVG sprite
+index.html           1371 lines   All markup: topbar, lobby screen + 11 inline SVG card scenes, sidebar control panes, stage views, modals, cheat panel, account + customize modals, SVG sprite
 styles.css           1031 lines   Base theme, layout grid, components, responsive, prefers-* rules
 css/gamdom.css        894 lines   Colour tokens, live-bets skin, chrome polish, brand mark, cheat panel, player profiles (loaded AFTER styles.css)
 css/lobby.css        1307 lines   Lobby design system: route visibility, hero, grid, card art keyframes (loaded LAST)

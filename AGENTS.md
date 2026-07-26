@@ -634,6 +634,44 @@ Responsive pass (this pass) — see §14 for the design:
   through a DOM button into the app handler — so no stage can settle a round without the
   wallet being credited.
 
+Phone-first pass (this pass) — the stage went from 43% to ~75% of a 390x844 viewport:
+
+- Syntax gate clean; braces balanced in all three CSS files.
+- **Stage share**: 62% at 320x568, 71% at 360x740, **75% at 390x844**, 77% at 430x932,
+  73% at 600x800, 65% at 1024x768, 70% at 1440x900. Was 43% on a phone.
+- **11 games x 9 viewports**: every canvas inside its host and inside `#board-stage`, zero
+  document overflow, the fixed action bar clear of the stage everywhere, zero page errors.
+- **Header token** within 1px of measured at every breakpoint, 320px through 1920px,
+  including the 521-720px band that a previous split had left unmeasured.
+- **Tools sheet**: opens, fully on screen, all seven buttons hit-test to themselves at
+  85x85 / 85x54, scrim taps close it, Escape closes it, selecting a tool closes it before
+  its modal opens.
+- **rAF**: chains re-arm across a pane round-trip in all eight continuously-looping modules;
+  plinko and crash are idle-stopped by design and were driven to confirm they start and
+  advance. Crash ran 1.262 -> 2.220 and auto-cashed **while its pane was hidden**.
+- **Money residual exactly 0** for plinko, limbo, keno, dice, pocket-dice, roulette, crash,
+  twist, hilo and mines, each driven individually with real mid-round cashouts.
+
+### Pre-existing defect found here, NOT introduced and NOT yet fixed
+
+`#btn-bj-hit`, `#btn-bj-stand` and `#btn-bj-double` each have **two** `addEventListener`
+registrations in `js/app.js` — one block around line 2248 and a stale duplicate around
+line 2393. The duplicate is dead-wrong code, not a second opinion:
+
+- it branches on `res.status`, a field `blackjack.js` does not produce (it returns
+  `res.state` / `res.result`), so most of its bodies never fire;
+- `stand`'s guard is a bare `if (res)`, which is always truthy, so **every stand records a
+  second round** — `bets` and `wagered` are double-counted for blackjack;
+- `double` debits `state.bet` unconditionally at the top before any guard, so **clicking
+  Double takes the stake twice**.
+
+Measured identically on this working tree and on `HEAD` via a `git worktree` served side by
+side: four stand-completed rounds report `bets +8`, `wagered +80` for four real 10-unit
+stakes, and the invariant over-reports `wagered` by exactly the duplicate's contribution.
+The wallet is not drained by the stand path (the second record credits 0), but the Double
+path is a real double-debit. Fix is to delete the stale block; left in place because it is
+outside the scope of the pass that found it.
+
 Two harness notes worth keeping:
 
 1. **rAF does not fire in a backgrounded automation tab.** `document.hidden` reported
@@ -804,25 +842,61 @@ a CSP violation is silent in the network tab and fatal to the stage.
 
 Three regimes, and every one of them is driven by a real measurement, never a guess.
 
-|Width|Layout|Header|Bet action|Tab strip|
-|---|---|---|---|---|
-|`> 1080px`|two-column grid, sticky sidebar|sticky, 66px|in the sidebar|visible, scrolls when it doesn't fit|
-|`<= 1080px`|**single column, stage FIRST**|sticky, 76px|**fixed bottom bar**|hidden — the lobby is the switcher|
-|`<= 520px`|same|sticky two rows, 112px|fixed bottom bar|hidden|
+|Width|Layout|Header|Bet action|Tab strip|Tools|
+|---|---|---|---|---|---|
+|`> 1080px`|two-column grid, sticky sidebar|sticky, 66px|in the sidebar|visible, scrolls when it doesn't fit|a row in the header|
+|`<= 1080px`|**single column, stage FIRST**|sticky, 76px|**fixed bottom bar**|hidden — the lobby is the switcher|a row in the header|
+|`<= 720px`|same|sticky **one row, 64px**|fixed bottom bar|hidden|**bottom sheet behind `#btn-more`**|
+|`<= 520px`|same|same 64px row, wordmark + Deposit label dropped|fixed bottom bar|hidden|bottom sheet|
 
 Plus two orthogonal blocks: `@media (pointer: coarse)` for 44px targets, and
 `@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape)` for
 rotated phones.
 
+### The phone budget: the game gets ~75% of the screen
+
+Measured at 390x844: stage **630px, 75% of the viewport** (it was 366px / 43%). What paid
+for it, in order of how much each returned:
+
+1. **Dropping `aspect-ratio` from `.board-stage`.** This was the binding constraint, not the
+   dvh cap: a 366px-wide column pinned the height to 366 and the `58dvh` (~489px) ceiling
+   never applied. The height is now solved from the viewport:
+   `calc(100svh - var(--topbar-h) - 150px)`.
+2. **`svh`, not `dvh`.** `dvh` changes continuously while the URL bar collapses, and every
+   game's `resize()` reallocates its canvas backing store and recomputes its cached layout
+   on each frame of that animation — mid-round. `svh` is the smallest stable viewport, so
+   the stage is sized once and never re-lays-out. Same reasoning as the modal sheet's `88svh`.
+3. **The seven tools became a bottom sheet** (`#btn-more`), taking the header from two rows
+   (112px) to one (64px).
+4. **The recent-results rail is hidden** — 64px directly above the board, and its empty state
+   advertised a keyboard ("hit Space to play"). The same history lives in the stats modal.
+
+### The tools sheet
+
+`.topbar__actions` is re-presented as a fixed bottom sheet below 720px. The seven buttons are
+**not duplicated** — same markup, same handlers, only presentation changes. Three traps, all
+of which bit during implementation:
+
+- **`.topbar` is `position: sticky; z-index: 60`, which is a stacking context.** A fixed
+  descendant can never rise above 60 globally however large its own z-index, so the sheet
+  painted *under* the Drop bar (80) and the cheat panel (70) — both of which sit exactly
+  where it opens. `body.tools-open .topbar { z-index: 90 }` lifts the whole context. 90 and
+  not more: modals are 100 and every tool in the sheet opens one.
+- **The scrim must be a body-level element**, not a `.topbar` child, for the same reason.
+- **Close-on-select is delegated to the nav**, not attached per button. Four of the tools
+  open a modal, and a sheet left open would paint over the dialog it just launched.
+
 ### `--topbar-h` is a MEASUREMENT, not a preference
 
 `.controls` sticky top, the lobby toolbar and the landscape stage height are all
 `calc(... var(--topbar-h) ...)`. The token is set per breakpoint to the header's real
-rendered height (66 / 76 / 112, each verified to within the 1px border). **Change anything
+rendered height (66 / 76 / 64, each verified to within the 1px border). **Change anything
 in the header and re-measure it in the browser** — a token that drifts from reality
 misaligns every sticky offset in the app silently, which is the regression §10 exists for.
-That is also why the tools cluster is `flex-wrap: nowrap; overflow-x: auto` rather than
-wrapping: a wrap grows the header invisibly, an overflow does not.
+That is also why the tools cluster scrolls rather than wraps above 720px: a wrap grows the
+header invisibly, an overflow does not. Note the token and everything that makes the header
+one row live in the SAME block: splitting them once left 521-720px rendering a one-row
+header while every offset still assumed the two-row 76px token.
 
 ### The bug class that produced almost every overflow found here
 
@@ -880,11 +954,34 @@ Every module's `resize()` now obeys four rules. A twelfth game must too:
    tapped tile stays visually hovered forever. Skip `pointerType === 'mouse'` so a desktop
    click doesn't drop the highlight.
 
-Every drawing constant is derived from the live canvas size (typically one scalar like
-`clamp(min(w, h) / 420, lo, hi)`), computed in `resize()` and cached — never per frame.
-Targets are 296×296 through 1200×760, plus the ~800×200 landscape sliver, which is why
-several stages (mines, hilo, twist, keno) pick between a stacked and a side-by-side
-arrangement rather than trusting a single layout.
+Every drawing constant is derived from the live canvas size, computed in `resize()` and
+cached — never per frame.
+
+**Scale off the BOX, not off `min(w, h)`.** The phone stage is now ~366×630, aspect **0.57**.
+A scalar keyed on the short axis reads a 630px-tall stage as if it were the 366px square it
+replaced, and captions itself at the small-stage floor. The pattern that works, used by
+every module here, is a geometric blend — `sqrt((w/refW) * (h/refH))`, leashed so a landscape
+sliver cannot inflate it — for TYPE, with the short axis still driving radial geometry.
+
+**Spend the surplus, do not centre it.** A layout that solves off `min(w, h)` and centres
+leaves ~260px of dead air on a phone. Each module now allocates leftover height explicitly,
+in a stated priority order, so nothing floats in a void.
+
+**A horizontal-core game must not stretch to fill height.** Crash's curve, roulette's strip
+and limbo's rail read left-to-right; filling a 0.57 box with them makes them worse, not
+bigger. Those three cap their primary element's aspect and spend the surplus on HUD that had
+nowhere to live — and because the DOM results rail is hidden below 720px, crash and roulette
+now draw their own recent-results strip, which is the only place a phone player sees history.
+
+Targets are 296×354 through 1200×760, plus the ~800×200 landscape sliver, which is why
+several stages (mines, hilo, twist, keno, roulette) pick between a stacked and a
+side-by-side arrangement rather than trusting a single layout.
+
+**In-canvas tap targets are ≥48px** where the canvas is tappable at all — which is only
+plinko (bucket bands), keno and mines (tiles). Everything else routes through DOM controls
+owned by `app.js`, and a canvas-side shortcut would bypass the credit path (hilo's is the
+worked example: a canvas `hilo.cashout()` flips `inGame` first, sending `app.js` down its
+`inGame === false` branch and recording a ZERO payout).
 
 `#<game>-stage` mount points are given `width/height: 100%` in styles.css. Without it
 `#hilo-stage` and `#blackjack-stage` measured **0×0** (a flex item collapsing against a

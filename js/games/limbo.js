@@ -27,7 +27,8 @@ function clamp(v, lo, hi) {
 
 /**
  * Compact rail tick label. Targets run to 1,000,000x, so the ladder has to stay inside
- * four or five glyphs at a 7.5px font or the labels collide before the thinner can act.
+ * four or five glyphs; the ladder then thins itself from the ends inward, and its font
+ * scales with the canvas area rather than sitting at the small-stage floor.
  *
  * @param {number} v
  * @returns {string}
@@ -153,6 +154,19 @@ export class LimboGame {
     this._fitChars = 0;
     this._cardW = 0;
     this._tight = null;
+    this._lt = 0;
+    this._shift = 0;
+    // Bottom edge of the DOM numeral block and its centre as a fraction of the canvas
+    // box, both in canvas coordinates. The overlay is centred by CSS inside the very
+    // element the canvas fills, so these are derivable from the numbers we just wrote —
+    // no second layout read, and nothing measured per frame.
+    this._heroBottom = 0;
+    this._heroCy = 0.44;
+    // Stage geometry resolved once per resize; see computeLayout().
+    this._rail = null;
+    this._strip = null;
+    this._ticks = [];
+    this._ticksKey = null;
     this._dirty = true;
     this._resizeObserver = null;
     this._onWindowResize = null;
@@ -349,12 +363,16 @@ export class LimboGame {
     style.id = 'limbo-styles';
     style.textContent = `
       .limbo-card {
-        /* --ls (density) and --lhero (numeral px) are written by applyScale() from the
-           live stage box. Every metric below is a multiple of them, so the card reflows
-           from a 296px phone stage to a 1200px desktop one with no media query — the
-           stage is not the viewport, so a media query would be measuring the wrong box. */
+        /* --ls (density), --lt (type), --lhero (numeral px) and --lshift (how far the
+           numeral rides above centre) are written by applyScale() from the live stage
+           box. Every metric below is a multiple of them, so the card reflows from a
+           296x354 phone stage to a 366x630 one to a 1200px desktop one with no media
+           query — the stage is not the viewport, so a media query would be measuring
+           the wrong box. */
         --ls: 1;
         --lhero: 74px;
+        --lt: 1;
+        --lshift: 0.18;
         position: relative;
         width: 100%;
         height: 100%;
@@ -380,8 +398,8 @@ export class LimboGame {
         position: relative;
         display: flex;
         flex-direction: column;
-        gap: calc(3px * var(--ls));
-        padding: calc(10px * var(--ls)) calc(13px * var(--ls));
+        gap: calc(3px * var(--lt));
+        padding: calc(10px * var(--lt)) calc(13px * var(--ls));
         min-width: 0;
         border-radius: calc(12px * var(--ls));
         overflow: hidden;
@@ -411,7 +429,7 @@ export class LimboGame {
         text-overflow: ellipsis;
       }
       .limbo-card .limbo-stat__label {
-        font-size: max(8px, calc(10px * var(--ls)));
+        font-size: max(8px, calc(10px * var(--lt)));
         font-weight: 800;
         letter-spacing: max(0.03em, calc(0.14em * var(--ls)));
         text-transform: uppercase;
@@ -420,8 +438,9 @@ export class LimboGame {
       .limbo-card .limbo-stat__value {
         font-family: 'Roboto Mono', ui-monospace, monospace;
         /* Legibility floor: below ~12px the mono digits stop being scannable at arm's
-           length, so the value stops shrinking before the label does. */
-        font-size: max(12px, calc(17px * var(--ls)));
+           length. --lt rather than --ls is what gets a 366x630 stage off that floor —
+           the card is narrow but 630px tall, and only --lt can see the difference. */
+        font-size: max(12px, calc(17px * var(--lt)));
         font-weight: 800;
         letter-spacing: -0.01em;
         color: #e2e8f0;
@@ -472,9 +491,11 @@ export class LimboGame {
         padding: 0 calc(8px * var(--ls));
         text-align: center;
         user-select: none;
-        /* Lift by a fraction of the numeral, which is also roughly the height of the
-           rail band the canvas paints along the bottom — keeps the two from touching. */
-        transform: translateY(calc(var(--lhero) * -0.18));
+        /* Lift as a fraction of the numeral. 0.18 on a short stage is just enough to
+           clear the rail band along the bottom; on a tall phone stage applyScale()
+           raises it so the block rides into the upper third and the surplus height
+           lands in ONE gap (which the recent-rolls ladder fills) rather than two. */
+        transform: translateY(calc(var(--lhero) * var(--lshift, 0.18) * -1));
       }
       .limbo-card .limbo-ticker {
         font-family: 'Roboto Mono', ui-monospace, monospace;
@@ -509,7 +530,7 @@ export class LimboGame {
       }
       .limbo-card .limbo-subtext {
         margin-top: calc(9px * var(--ls));
-        font-size: max(9px, calc(11px * var(--ls)));
+        font-size: max(9px, calc(11px * var(--lt)));
         font-weight: 800;
         letter-spacing: max(0.06em, calc(0.18em * var(--ls)));
         line-height: 1.35;
@@ -525,21 +546,22 @@ export class LimboGame {
         flex: 0 0 auto;
         display: flex;
         gap: calc(7px * var(--ls));
-        min-height: calc(24px * var(--ls));
+        min-height: calc(24px * var(--lt));
         overflow-x: auto;
         padding: 1px 0 3px;
         scrollbar-width: none;
       }
-      /* Under ~150px of stage height (phone landscape) the strip is competing with the
-         rail band for the last 20px; the app's own history chips still carry the reel. */
+      /* Landscape strips only: under 250px of card height AND wider than tall, the
+         strip is competing with the rail band for the last 20px and the app's own
+         history chips still carry the reel. A tall phone stage keeps its pills. */
       .limbo-card.is-tight .limbo-history { display: none; }
       .limbo-card .limbo-history::-webkit-scrollbar { display: none; }
       .limbo-pill {
         flex: 0 0 auto;
-        padding: calc(5px * var(--ls)) calc(11px * var(--ls));
+        padding: calc(5px * var(--lt)) calc(11px * var(--ls));
         border-radius: 999px;
         font-family: 'Roboto Mono', ui-monospace, monospace;
-        font-size: max(10px, calc(12px * var(--ls)));
+        font-size: max(10px, calc(12px * var(--lt)));
         font-weight: 800;
         white-space: nowrap;
         color: #94a3b8;
@@ -608,33 +630,73 @@ export class LimboGame {
     // Reference box is 420x330 — the smallest stage at which the original desktop
     // metrics still fit. Floor 0.5 keeps the max()-guarded font floors doing the work
     // below that; ceiling 1.3 stops a 1200px desktop stage from turning into posters.
-    const ls = clamp(Math.min(cw / 420, ch / 330), 0.5, 1.3);
-    // Under ~250px of card height the chrome leaves the canvas barely 100px, which the
-    // rail band alone needs; the pill strip goes first.
-    const tight = ch < 250;
+    const sw = cw / 420;
+    const sh = ch / 330;
+    const ls = clamp(Math.min(sw, sh), 0.5, 1.3);
+
+    // Type scale. --ls is a min(), so it reads a 366x630 phone card as a small one and
+    // that is exactly how the stat strip ended up pinned to its 12px floor on the
+    // tallest box we ship. --lt spends the VERTICAL headroom (whatever sh has over the
+    // density the width can carry) on type, and is capped by the width one stat column
+    // can give an eight-glyph payout so three columns never collide. On any box where
+    // sh <= ls — every landscape strip — it resolves to --ls and changes nothing.
+    const colW = (cw - 52 * ls) / 3 - 26 * ls;
+    const lt = clamp(
+      Math.min(ls * (1 + 0.55 * clamp(sh - ls, 0, 1.2)), colW / (8 * 0.6 * 17)),
+      ls,
+      1.4,
+    );
+
+    // The pill strip is dropped only on a landscape strip: short AND wider than tall.
+    // The bare height test fired on a 296x354 phone stage, which has the room for the
+    // pills and nothing else to put in the row.
+    const tight = ch < 250 && ch < cw * 0.8;
 
     if (Math.abs(ls - this._ls) > 0.005) {
       this._ls = ls;
       card.style.setProperty('--ls', ls.toFixed(3));
+    }
+    if (Math.abs(lt - this._lt) > 0.005) {
+      this._lt = lt;
+      card.style.setProperty('--lt', lt.toFixed(3));
     }
     if (tight !== this._tight) {
       this._tight = tight;
       card.classList.toggle('is-tight', tight);
     }
 
-    // Hero is sized from the CANVAS host, not the card: the two writes above decide how
-    // much of the card the chrome keeps, and only the leftover is the numeral's to fill.
-    // Reading after the writes costs one sync layout, but only on a real resize.
+    // Hero is sized from the CANVAS host, not the card: the three writes above decide
+    // how much of the card the chrome keeps, and only the leftover is the numeral's to
+    // fill. Reading after the writes costs one sync layout, but only on a real resize.
     const disp = this.displayEl;
     const dw = disp ? disp.clientWidth : cw;
     const dh = disp ? disp.clientHeight : ch;
-    // A fifth of the stage width, capped at just over a third of its height so the
-    // numeral clears the rail band on a 779x125 landscape strip.
-    const hero = clamp(Math.min(dw * 0.20, dh * 0.38), 26, 100);
+
+    // Limbo's core is horizontal — the rail must not fatten to fill a 0.57 box — so the
+    // surplus height of a tall phone stage goes to the numeral, which IS the game. The
+    // width share opens from a fifth of the stage on a landscape strip to just under a
+    // third once the box is taller than it is wide; the dh term still governs landscape,
+    // where height is the scarce axis and nothing about this changes the answer.
+    const ar = dh / Math.max(1, dw);
+    const wShare = clamp(0.20 + 0.13 * (ar - 0.35), 0.20, 0.30);
+    const hero = clamp(Math.min(dw * wShare, dh * 0.38), 26, 132);
     if (Math.abs(hero - this._hero) > 0.5) {
       this._hero = hero;
       card.style.setProperty('--lhero', `${hero.toFixed(1)}px`);
     }
+
+    const shift = clamp(0.18 + 0.55 * (ar - 0.7), 0.18, 0.62);
+    if (Math.abs(shift - this._shift) > 0.005) {
+      this._shift = shift;
+      card.style.setProperty('--lshift', shift.toFixed(3));
+    }
+
+    // Numeral block = ticker line (line-height 1) + subtext margin + subtext line. The
+    // canvas fills the same box the overlay is centred in, so this places the ladder
+    // below the numeral without a second layout read.
+    const blockH = hero + 9 * ls + Math.max(9, 11 * lt) * 1.35;
+    this._heroBottom = (dh + blockH) / 2 - shift * hero;
+    this._heroCy = dh > 1 ? clamp((dh / 2 - shift * hero) / dh, 0.2, 0.6) : 0.44;
 
     this._fitChars = 0; // the box moved, so the cached numeral fit is stale
     this.fitTicker();
@@ -702,6 +764,7 @@ export class LimboGame {
 
     this._cw = w;
     this._ch = h;
+    this.computeLayout();
     this._dirty = true;
   }
 
@@ -1102,7 +1165,7 @@ export class LimboGame {
       const speed = (2 + Math.random() * 6) * s;
       this.particles.push({
         x: width / 2,
-        y: height * 0.44,
+        y: height * this._heroCy,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         size: (1.6 + Math.random() * 2.6) * s,
@@ -1162,12 +1225,13 @@ export class LimboGame {
       stars: this.stars,
       glow: accent,
       glowX: 0.5,
-      glowY: 0.44,
+      glowY: this._heroCy,
       glowStrength: won ? 0.15 : lost ? 0.11 : 0.07,
     });
 
     this.drawBloom(w, h);
-    this.drawTargetRail(w, h);
+    this.drawTrendStrip();
+    this.drawTargetRail(w);
     this.drawParticles();
     this.drawFlash(w, h);
   }
@@ -1184,7 +1248,7 @@ export class LimboGame {
 
     const ctx = this.ctx;
     const cx = w / 2;
-    const cy = h * 0.44;
+    const cy = h * this._heroCy;
     const color = this.bloomState.color;
     const fade = 1 - p;
 
@@ -1209,9 +1273,12 @@ export class LimboGame {
   }
 
   /**
-   * Uniform drawing scale for the rail. 1 at the 420x240 box the original metrics were
-   * drawn for; floored so a 780x116 landscape strip keeps readable ticks, capped so a
-   * 1150px desktop stage does not inflate a 6px rail into a bar.
+   * Uniform GEOMETRIC scale for the rail — thickness, padding, tick length, marker.
+   * 1 at the 420x240 box the original metrics were drawn for; floored so a 780x116
+   * landscape strip keeps a usable rail, capped so a 1150px desktop stage does not
+   * inflate a 6px rail into a bar. Deliberately a min(): the rail is the horizontal
+   * core of this game and must NOT fatten just because the stage grew tall. Text uses
+   * typeScale() instead, which can see the difference.
    *
    * @param {number} w
    * @param {number} h
@@ -1222,20 +1289,42 @@ export class LimboGame {
   }
 
   /**
-   * Threshold rail: the target notch always sits at the centre, so the rolling marker
-   * left of it is a loss and right of it is a win — the same read as the Dice track.
-   * Every metric derives from the live canvas box, and the tick ladder thins itself
-   * until no two labels can touch.
+   * Type scale for canvas text. stageScale() is a min(), so a 338x502 phone stage reads
+   * as a 0.8 "small" stage and the tick ladder sits at its 7.5px floor on the tallest
+   * box we ship. Area is the honest measure of how much room a label has; callers still
+   * cap the result against the stage height, which is what leaves a landscape strip's
+   * ladder exactly where it was.
    *
    * @param {number} w
    * @param {number} h
+   * @returns {number}
    */
-  drawTargetRail(w, h) {
-    const ctx = this.ctx;
+  typeScale(w, h) {
+    return clamp(Math.sqrt((w * h) / (420 * 240)), 0.7, 1.7);
+  }
+
+  /**
+   * Every stage scalar that depends only on the canvas box, resolved once per resize.
+   * drawTargetRail()/drawTrendStrip() read these and compute nothing of their own —
+   * a rail whose metrics are re-derived seven times a second during a roll is the
+   * frame budget going nowhere.
+   */
+  computeLayout() {
+    const w = this._cw;
+    const h = this._ch;
+    this._rail = null;
+    this._strip = null;
+    this._ticksKey = null;
     // Below this there is no band left under the hero numeral worth drawing into.
-    if (h < 56) return;
+    if (w < 2 || h < 56) return;
 
     const s = this.stageScale(w, h);
+    const ts = this.typeScale(w, h);
+    // Text may grow with the box, but never past a twentieth of the stage height. That
+    // cap is what holds an 812x205 landscape strip's ladder at its old size while a
+    // 366x630 phone stage gets 12px labels instead of 7.6px ones.
+    const textCap = clamp(h * 0.055, 8, 15);
+
     const padX = clamp(16 * s, 8, 40);
     // Cap the rail proportionally, not at a fixed 460: on a 1150px stage a hard cap
     // leaves the rail marooned in the middle, and on a 264px one `w - 72` starves it.
@@ -1243,7 +1332,7 @@ export class LimboGame {
     if (railW < 70) return;
 
     const th = clamp(9 * s, 5, 14);
-    const labelSize = clamp(9.5 * s, 7.5, 13);
+    const labelSize = clamp(9.5 * ts, 7.5, textCap);
     const tickLen = clamp(4.5 * s, 3, 8);
     const labelGap = clamp(3.5 * s, 2.5, 6);
     const bottomPad = clamp(10 * s, 7, 20);
@@ -1252,6 +1341,65 @@ export class LimboGame {
     const labelBottom = h - bottomPad;
     const cy = labelBottom - labelSize - labelGap - tickLen - th / 2;
     const ty = cy - th / 2;
+
+    // Lose/Win end captions are the first thing to go: under ~140px of stage height the
+    // band would push them into the hero numeral, and the red/green track halves
+    // already carry the same read.
+    const capSize = h >= 140 ? clamp(9 * ts, 7.5, textCap) : 0;
+    const capY = ty - clamp(5 * s, 3.5, 9);
+
+    this._rail = { s, x0, railW, th, ty, cy, tickLen, labelSize, labelBottom, capSize, capY };
+
+    // ---- recent-rolls ladder ----
+    // The numeral is centred by CSS and the rail is pinned to the bottom, so a tall
+    // stage opens a gap between them. Stretching the rail to close it would make the
+    // rail worse — it reads horizontally — so the gap carries the last N outcomes on
+    // the same axis instead. Below 40px of gap there is no ladder worth the ink and
+    // none is built — an 812x205 landscape strip and a 768x1024 tablet both land there.
+    const topEdge = (this._heroBottom > 0 ? this._heroBottom : h * 0.5) + clamp(10 * s, 6, 20);
+    const bottomEdge = (capSize > 0 ? capY - capSize : ty) - clamp(9 * s, 6, 18);
+    const avail = bottomEdge - topEdge;
+    if (avail < 40) return;
+
+    // Under ~72px the header would cost the bars more than it explains; the gold line
+    // and the mint/red split are self-evident by then anyway.
+    const capH = avail >= 72 ? clamp(8.5 * ts, 7.5, textCap) : 0;
+    const barsTop = topEdge + (capH > 0 ? capH + clamp(6 * s, 4, 12) : 0);
+    const slots = Math.round(clamp(railW / clamp(18 * s, 12, 30), 5, 20));
+    const cell = railW / slots;
+    // Bars are capped against the band's own height as well as the cell: an 884px rail
+    // over a 43px band would otherwise draw 38px slabs, which reads as a wall rather
+    // than a trend. Narrower than the cell is fine — the cell still centres them.
+    const barW = clamp(cell - clamp(3.5 * s, 2, 7), 3, Math.max(6, (bottomEdge - barsTop) * 0.45));
+
+    this._strip = {
+      x0,
+      w: railW,
+      top: topEdge,
+      bottom: bottomEdge,
+      barsTop,
+      capH,
+      slots,
+      cell,
+      barW,
+      radius: Math.min(barW / 2, clamp(3 * s, 2, 5)),
+    };
+  }
+
+  /**
+   * Threshold rail: the target notch always sits at the centre, so the rolling marker
+   * left of it is a loss and right of it is a win — the same read as the Dice track.
+   * Every metric comes from computeLayout(); the tick ladder thins itself until no two
+   * labels can touch, and its placement is memoised against box and target.
+   *
+   * @param {number} w Canvas width, for clamping the marker inside the stage.
+   */
+  drawTargetRail(w) {
+    const m = this._rail;
+    if (!m) return; // computeLayout() found no band worth drawing at this box
+
+    const ctx = this.ctx;
+    const { s, x0, railW, th, ty, cy, capSize, capY } = m;
     const mid = x0 + railW / 2;
 
     // v / (v + target): 0 -> left end, target -> centre notch, ∞ -> right end.
@@ -1294,14 +1442,9 @@ export class LimboGame {
     ctx.fillRect(mid - notchW / 2, ty - notchExt, notchW, th + notchExt * 2);
     ctx.restore();
 
-    this.drawRailTicks(ctx, { x0, railW, ty, th, target, s, labelSize, tickLen, labelBottom });
+    this.drawRailTicks(ctx, m, target);
 
-    // Lose/Win end captions are the first thing to go: under ~140px of stage height the
-    // band would push them into the hero numeral, and the red/green track halves
-    // already carry the same read.
-    if (h >= 140) {
-      const capSize = clamp(9 * s, 7.5, 12.5);
-      const capY = ty - clamp(5 * s, 3.5, 9);
+    if (capSize > 0) {
       T.caption(ctx, 'Lose', x0, capY, { size: capSize, align: 'left', baseline: 'bottom', color: T.alpha(T.PALETTE.red, 0.6) });
       T.caption(ctx, 'Win', x0 + railW, capY, { size: capSize, align: 'right', baseline: 'bottom', color: T.alpha(T.PALETTE.mint, 0.6) });
     }
@@ -1318,25 +1461,32 @@ export class LimboGame {
   }
 
   /**
-   * Tick ladder under the rail. Candidates are ordered by importance, and one is only
-   * kept if its measured label clears every label already placed — so a narrow rail
-   * sheds ticks instead of overprinting them. Positions come from the same
+   * Tick ladder placement, memoised. Candidates are ordered by importance, and one is
+   * only kept if its measured label clears every label already placed — so a narrow
+   * rail sheds ticks instead of overprinting them. Positions come from the same
    * v / (v + target) mapping as the marker, which is why the ladder stays symmetric
    * around the centre notch for any target from 1.01x to 1,000,000x.
    *
+   * The ladder moves only when the box or the target moves, and seven measureText()
+   * calls per frame during a roll is exactly the kind of thing that must not be per
+   * frame — so the result is cached against precisely those inputs.
+   *
    * @param {CanvasRenderingContext2D} ctx
-   * @param {object} m Rail metrics.
+   * @param {object} m Rail metrics from computeLayout().
+   * @param {number} target
+   * @returns {Array<object>}
    */
-  drawRailTicks(ctx, m) {
-    const { x0, railW, ty, th, target, s, labelSize, tickLen, labelBottom } = m;
+  railTicks(ctx, m, target) {
+    const key = `${m.x0.toFixed(1)}|${m.railW.toFixed(1)}|${m.labelSize.toFixed(2)}|${target}`;
+    if (this._ticksKey === key) return this._ticks;
 
     // Priority order, not draw order: threshold, the 1.00x floor every roll starts at,
     // then the doublings out from the target.
     const values = [target, 1, target * 2, target * 0.5, target * 4, target * 0.25, target * 10];
-    const minGap = clamp(6 * s, 4, 12);
+    const minGap = clamp(6 * m.s, 4, 12);
 
     ctx.save();
-    ctx.font = `700 ${labelSize}px Inter, sans-serif`;
+    ctx.font = `700 ${m.labelSize}px Inter, sans-serif`;
 
     const kept = [];
     for (let i = 0; i < values.length; i++) {
@@ -1344,11 +1494,11 @@ export class LimboGame {
       if (v < 1) continue; // an outcome below 1.00x cannot happen, so never label one
       const label = fmtRailMult(v);
       const lw = ctx.measureText(label).width;
-      if (lw + 2 > railW) continue;
-      const px = x0 + (v / (v + target)) * railW;
+      if (lw + 2 > m.railW) continue;
+      const px = m.x0 + (v / (v + target)) * m.railW;
       // Slide an end label inward so it stays inside the rail — and therefore inside
       // the canvas — while its tick mark stays put.
-      const lx = clamp(px, x0 + lw / 2, x0 + railW - lw / 2);
+      const lx = clamp(px, m.x0 + lw / 2, m.x0 + m.railW - lw / 2);
       let collides = false;
       for (const k of kept) {
         if (Math.abs(lx - k.lx) < (lw + k.lw) / 2 + minGap) { collides = true; break; }
@@ -1357,6 +1507,20 @@ export class LimboGame {
       kept.push({ px, lx, lw, label, isTarget: i === 0 });
     }
     ctx.restore();
+
+    this._ticksKey = key;
+    this._ticks = kept;
+    return kept;
+  }
+
+  /**
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} m Rail metrics from computeLayout().
+   * @param {number} target
+   */
+  drawRailTicks(ctx, m, target) {
+    const kept = this.railTicks(ctx, m, target);
+    const { s, ty, th, tickLen, labelSize, labelBottom } = m;
 
     ctx.save();
     for (const k of kept) {
@@ -1379,6 +1543,86 @@ export class LimboGame {
         baseline: 'bottom',
         spacing: false,
         color: k.isTarget ? T.alpha(T.PALETTE.gold, 0.95) : 'rgba(148,163,184,0.72)',
+      });
+    }
+  }
+
+  /**
+   * Recent-rolls ladder, filling the gap a tall stage opens between the hero numeral
+   * and the rail. Bars use each roll's OWN v / (v + target) position — the same axis
+   * the rail draws on — so the gold mid-line reads as "the target that roll was placed
+   * against" and a bar clearing it is exactly a win. One grammar, two time bases.
+   *
+   * Purely a function of this.history and the cached strip metrics; it exists only on
+   * boxes where computeLayout() found room for it.
+   */
+  drawTrendStrip() {
+    const st = this._strip;
+    if (!st) return;
+
+    const ctx = this.ctx;
+    const baseY = st.bottom;
+    const areaH = baseY - st.barsTop;
+    if (areaH < 12) return;
+
+    const midY = baseY - areaH * 0.5;
+    const hist = this.history;
+    const n = Math.min(hist.length, st.slots);
+
+    // Baseline and target line are drawn whether or not a roll has landed: an empty
+    // frame reads as a place results will go, a bare gap reads as a layout bug.
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(148,163,184,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(st.x0, Math.round(baseY) + 0.5);
+    ctx.lineTo(st.x0 + st.w, Math.round(baseY) + 0.5);
+    ctx.stroke();
+
+    ctx.strokeStyle = T.alpha(T.PALETTE.gold, 0.34);
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(st.x0, Math.round(midY) + 0.5);
+    ctx.lineTo(st.x0 + st.w, Math.round(midY) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+
+    for (let i = 0; i < n; i++) {
+      // history[0] is the newest, so the ladder reads oldest -> newest left to right
+      // and the freshest bar sits at the right edge, under the rail's win half.
+      const e = hist[n - 1 - i];
+      const t = Math.max(1.01, Number(e.target) || 1.01);
+      const v = Math.max(0, Number(e.multiplier) || 0);
+      const frac = clamp(v / (v + t), 0.015, 0.99);
+      const bh = Math.max(2, frac * areaH);
+      const x = st.x0 + (st.slots - n + i) * st.cell + (st.cell - st.barW) / 2;
+      const newest = i === n - 1;
+      const color = e.win ? T.PALETTE.mint : T.PALETTE.red;
+
+      ctx.save();
+      if (newest) {
+        ctx.shadowColor = T.alpha(color, 0.8);
+        ctx.shadowBlur = 10;
+      }
+      ctx.fillStyle = T.alpha(color, newest ? 0.95 : e.win ? 0.62 : 0.42);
+      T.roundRect(ctx, x, baseY - bh, st.barW, bh, st.radius);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (st.capH > 0) {
+      const capBottom = st.top + st.capH;
+      T.caption(ctx, n > 0 ? `Last ${n} rolls` : 'Recent rolls', st.x0, capBottom, {
+        size: st.capH,
+        align: 'left',
+        baseline: 'bottom',
+        color: 'rgba(148,163,184,0.6)',
+      });
+      T.caption(ctx, `Target ${fmtRailMult(Math.max(1.01, this.targetMultiplier))}x`, st.x0 + st.w, capBottom, {
+        size: st.capH,
+        align: 'right',
+        baseline: 'bottom',
+        color: T.alpha(T.PALETTE.gold, 0.7),
       });
     }
   }
@@ -1422,7 +1666,8 @@ export class LimboGame {
     const ctx = this.ctx;
     const a = this.flashState.alpha * (1 - elapsed / duration);
     ctx.save();
-    const g = ctx.createRadialGradient(w / 2, h * 0.44, 0, w / 2, h * 0.44, Math.max(w, h) * 0.8);
+    const cy = h * this._heroCy;
+    const g = ctx.createRadialGradient(w / 2, cy, 0, w / 2, cy, Math.max(w, h) * 0.8);
     g.addColorStop(0, T.alpha(this.flashState.color, a));
     g.addColorStop(1, T.alpha(this.flashState.color, 0));
     ctx.fillStyle = g;

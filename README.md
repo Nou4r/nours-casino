@@ -129,16 +129,21 @@ chime, bust and card flip is generated — the project ships no audio files.
 state and switches every canvas stage to its static draw path. Canvas can't hear CSS, so each
 game reads the media query directly and subscribes to its `change` event.
 
-**Built for a phone, not shrunk onto one.** Below 1080px the layout stacks with the **game
-first** and the bet panel under it, and the primary action becomes a fixed, thumb-reachable
-bottom bar — the balance stays pinned in the header where a casino should keep it. The tab
-strip gives way to the lobby, which becomes the game switcher. Every one of the eleven canvas
-stages solves its own layout from the live canvas size rather than scaling a desktop design
-down: mines and keno re-pick their grid shape, hilo and blackjack re-fan their cards, twist
-and mines switch to a side-by-side arrangement on a landscape sliver. Tap targets are 44px,
-`env(safe-area-inset-*)` is respected on notched devices, modals open as bottom sheets, and a
-pull-down mid-round can't reload the page. Verified across 11 viewports from 320×568 to
-1920×1080, portrait and landscape.
+**Built for a phone, not shrunk onto one.** On a 390×844 phone the game board gets **75% of
+the screen**. The header collapses to one 64px row — the seven tools live in a bottom sheet
+behind a single button — the results rail and every keyboard hint disappear, and the bet
+action becomes a fixed, thumb-reachable bar. The balance stays pinned in the header where a
+casino should keep it, and the lobby becomes the game switcher.
+
+Every one of the eleven stages then re-solves its own layout for the tall, narrow box rather
+than scaling a desktop design down. Mines and keno re-pick their grid shape and fill the
+width; hilo and blackjack grow and re-fan their cards; plinko's pyramid stretches into the
+height with upright, fully-spelled multiplier chips. The three horizontal-core games refuse
+to distort: crash, roulette and limbo cap their curve/strip/rail and spend the surplus on a
+giant readout and an in-canvas results history instead. Canvas tap targets are ≥48px, chrome
+targets ≥44px, `env(safe-area-inset-*)` is respected on notched devices, modals open as
+bottom sheets, and a pull-down mid-round can't reload the page. Verified across 11 viewports
+from 320×568 to 1920×1080, portrait and landscape.
 
 ---
 

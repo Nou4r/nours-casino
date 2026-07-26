@@ -116,6 +116,12 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
   border-bottom: 1px solid var(--line);
 }
 
+/* The tools sheet and its handle exist only below 720px, where .topbar__actions
+   is re-presented as a bottom sheet (see that block). Above it the seven tools
+   are just a row in the header and neither of these is rendered. */
+.tools-toggle { display: none; }
+.tools-scrim  { display: none; }
+
 .topbar__inner {
   max-width: 1560px;
   margin: 0 auto;
@@ -1104,40 +1110,126 @@ select.input option { background: var(--panel-2); color: var(--text); }
 
 @media (max-width: 720px) {
   .controls__scroll { grid-template-columns: 1fr; }
-  .board-stage { aspect-ratio: 1.06; max-height: 62dvh; min-height: 320px; }
   .toasts { left: 12px; right: 12px; max-width: none; }
   .modal__body { padding: 14px; }
 
-  /* The header STAYS sticky. #balance-display is the only wallet readout in the
-     app, and a casino never lets the balance scroll off screen — every win would
-     land invisibly. It is affordable because .game-nav is gone above and the four
-     tool buttons that used to sit inside .wallet now live in .topbar__actions
-     (index.html), which cuts the phone header from three rows to two. */
+  /* ---- The game gets the screen -------------------------------------------
+     Before this block the stage was 366px of an 844px phone (43%), and the
+     binding constraint was `aspect-ratio: 1`, not the dvh cap — a 366px-wide
+     column pinned the height to 366 and the 58dvh (~489px) cap never applied.
+     Drop the ratio and solve the height from the viewport instead.
+     svh, not dvh: dvh changes continuously while the URL bar collapses, and
+     every game's resize() reallocates its canvas backing store and recomputes
+     its cached layout on each frame of that animation — mid-round. svh is the
+     smallest stable viewport, so the stage is sized once and never re-lays-out.
+     150px covers the fixed action bar (49), the layout padding and a deliberate
+     sliver of the board footer so "there is more below" stays legible. */
+  .board-stage {
+    aspect-ratio: auto;
+    height: calc(100svh - var(--topbar-h) - 150px);
+    max-height: none;
+    min-height: 320px;
+  }
+  /* Recent results are a nice-to-have that cost 64px directly above the board,
+     and their empty state advertises a keyboard ("hit Space to play"). The same
+     history lives in the stats modal. */
+  .history-rail { display: none; }
+
+  /* ---- One 64px header ------------------------------------------------------
+     The seven tools become a bottom sheet behind #btn-more (below), so the row
+     is just [brand · home · balance · deposit · more] and the header stops being
+     two rows (112px measured before).
+     Everything that makes it ONE row lives here, at the same breakpoint as the
+     sheet — token included. Splitting them left 521-720px rendering a one-row
+     header while every sticky offset still assumed the two-row 76px token.
+     backdrop-filter has to go: it makes .topbar a containing block for fixed
+     descendants, and the tools sheet is a fixed child of it. */
+  :root { --topbar-h: 64px; }
+  .topbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(180deg, rgba(13, 19, 33, .99), rgba(13, 19, 33, .96));
+  }
+  .topbar__inner { flex-wrap: nowrap; gap: 7px; padding-block: 7px; }
+  /* The wordmark goes across the whole one-row band, not just <=520px: it is the
+     only thing that made 521-720px render a 68px header against a 64px token. */
+  .brand__text { display: none; }
+  /* flex-basis 0, not auto: the wallet's max-content (label + amount + Deposit)
+     would otherwise claim more than its share before min-width:0 is consulted,
+     and with nowrap that pushes the row wide instead of shrinking it. */
+  .wallet { flex: 1 1 0; min-width: 0; }
+  .topbar #btn-home,
+  .topbar #btn-more,
+  .topbar #btn-deposit { min-width: 40px; min-height: 40px; padding: 8px; flex: 0 0 auto; }
+  #btn-more { display: inline-flex; }
+
+  /* The tools sheet. Same seven buttons, no duplicate markup and no second set
+     of handlers — only their presentation changes. */
+  .topbar__actions {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 95;                       /* over the action bar (80), under modals */
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    background: rgba(21, 28, 40, .98);
+    box-shadow: 0 -24px 60px -20px rgba(0, 0, 0, .95);
+    overflow: visible;
+    transform: translateY(110%);
+    visibility: hidden;
+    transition: transform .26s var(--ease), visibility .26s;
+  }
+  body.tools-open .topbar__actions { transform: none; visibility: visible; }
+  .topbar__actions .btn {
+    flex-direction: column;
+    gap: 5px;
+    min-height: 62px;
+    padding: 10px 6px;
+    font-size: 11px;
+    border-radius: 12px;
+    background: rgba(148, 163, 184, .06);
+  }
+  .topbar__actions .btn__label,
+  .topbar__actions .acct-name { display: block; font-size: 10.5px; line-height: 1.15; }
+  /* Scrim: taps outside the sheet close it (app.js also handles Esc). */
+  .tools-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 85;                     /* above the Drop bar (80), below the sheet */
+    background: rgba(6, 10, 20, .55);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .26s var(--ease), visibility .26s;
+  }
+  body.tools-open .tools-scrim { opacity: 1; visibility: visible; }
+
+  /* .topbar is `position: sticky; z-index: 60`, which is a STACKING CONTEXT: the
+     sheet is a descendant, so its own z-index is scoped inside 60 and can never
+     rise above the fixed Drop bar (80) or the cheat panel (70) — both of which
+     sit exactly where the sheet opens, so the bar would cover it and swallow the
+     bottom row's taps. Lift the whole context while the sheet is open.
+     90, not something larger: modals are 100 and every tool in this sheet opens
+     one, so anything above 100 would paint the sheet over the dialog it just
+     launched. 90 clears the bar and the panel and stays under modals. */
+  body.tools-open .topbar { z-index: 90; }
 }
 
 @media (max-width: 520px) {
-  .board-stage { aspect-ratio: 1; max-height: 58dvh; min-height: 300px; }
+  /* No aspect-ratio here on purpose — the <=720px block solves the height from
+     the viewport, and re-pinning a ratio would undo it. */
   .wallet { padding: 5px 5px 5px 10px; }
   .wallet__meta small { display: none; }
   .wallet__amount { font-size: 13.5px; }
   .history-rail__label span { display: none; }
-  /* Two rows, both sticky: [brand · home · balance · deposit] then the tools.
-     --topbar-h is the MEASURED height of those rows and every sticky offset in
-     the app derives from it (AGENTS.md §10), so re-measure it — never guess —
-     whenever anything in this block changes. */
-  :root { --topbar-h: 112px; }
-  .topbar__inner { flex-wrap: wrap; row-gap: 6px; }
-  .brand__text { display: none; }
-  /* flex-basis MUST be 0, not auto: a wrapping flex container decides wrapping on
-     the item's base size, and the wallet's max-content (label + amount + Deposit)
-     is wide enough to claim its own row before min-width:0 ever gets consulted. */
-  .wallet { flex: 1 1 0; min-width: 0; }
-  .topbar__actions { flex: 1 0 100%; margin-left: 0; justify-content: flex-end; gap: 4px; }
-  /* Real 40px targets. css/gamdom.css loads after this file and squeezes the same
-     buttons to 5px padding, so these selectors are deliberately more specific. */
-  .topbar .topbar__actions .btn,
-  .topbar #btn-home,
-  .topbar #btn-deposit { min-width: 40px; min-height: 40px; padding: 8px; }
+  /* The one-row header, its 40px targets and --topbar-h all live in the <=720px
+     block. What is left here is what only a narrow phone needs: the wordmark and
+     the Deposit label go so the balance keeps its width. Re-measure --topbar-h in
+     the 720 block if either comes back. */
+  .wallet__meta small { display: none; }
   .topbar .wallet { gap: 6px; padding: 4px 6px 4px 10px; }
   .topbar #btn-deposit span { display: none; }
 
@@ -1199,8 +1291,8 @@ select.input option { background: var(--panel-2); color: var(--text); }
    `.game-tab` IS inside .topbar, whose height feeds --topbar-h and every sticky
    offset derived from it (AGENTS.md §10). It is safe here only because the strip
    is hidden below 720px and, above it, 44px still fits inside the 66px header.
-   Nothing else in the topbar gets a floor from this block — the tools cluster is
-   sized explicitly in the <=520px block instead, where the row is measured. */
+   The topbar's own chrome is sized explicitly in the <=720px block instead,
+   where the one-row header is measured. */
 @media (pointer: coarse) {
   .controls .btn,
   .game-tab,
@@ -1209,6 +1301,13 @@ select.input option { background: var(--panel-2); color: var(--text); }
   .modal .btn { min-height: 44px; }
   .chip-btn { min-width: 44px; }
   .controls .btn--icon, .modal .btn--icon { min-width: 44px; }
+  /* Text fields are targets too — these were the last two 42px controls.
+     16px is the iOS threshold: anything smaller zooms the viewport on focus,
+     which on a game route scrolls the board out from under the player. */
+  .controls .input,
+  .controls select,
+  .modal .input,
+  .modal select { min-height: 44px; font-size: 16px; }
   /* Topbar chrome gets 40, not 44: the header's own min-height is 66px with 10px
      of padding, so 40 is the largest floor that cannot grow --topbar-h and desync
      every sticky offset derived from it (AGENTS.md §10). Measured 30x30 before. */

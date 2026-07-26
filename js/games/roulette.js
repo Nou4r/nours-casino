@@ -38,7 +38,9 @@ export const ROULETTE_SLOTS = [
 
 /**
  * Colour styling mapping. `top`/`mid`/`bot` drive the vertical card gradient,
- * `rim` the inner bevel, `edge` the outer seam, `glow` the bloom colour.
+ * `rim` the inner bevel, `edge` the outer seam, `glow` the bloom colour and
+ * `ink` the on-dark text colour the HUD chips are drawn in (`fg` is tuned for
+ * a saturated card face and vanishes on the stage backdrop).
  */
 const COLOR_STYLES = {
   green: {
@@ -46,26 +48,38 @@ const COLOR_STYLES = {
     rim: 'rgba(190, 255, 226, 0.72)', edge: 'rgba(2, 46, 29, 0.9)',
     fg: '#042a1b', sub: 'rgba(216, 255, 238, 0.86)',
     glow: T.PALETTE.mint, idleGlow: 0.42,
-    label: 'GREEN (14x)',
+    ink: T.PALETTE.mint,
   },
   red: {
     top: '#e8455f', mid: '#bf1235', bot: '#6b091d',
     rim: 'rgba(255, 178, 190, 0.34)', edge: 'rgba(52, 4, 14, 0.9)',
     fg: '#ffffff', sub: 'rgba(255, 226, 231, 0.66)',
     glow: T.PALETTE.red, idleGlow: 0,
-    label: 'RED (2x)',
+    ink: '#ff7085',
   },
   black: {
     top: '#3a4759', mid: '#1a2331', bot: '#090e15',
     rim: 'rgba(203, 219, 240, 0.24)', edge: 'rgba(2, 5, 9, 0.9)',
     fg: '#eef4fb', sub: 'rgba(214, 227, 243, 0.55)',
     glow: T.PALETTE.slateHi, idleGlow: 0,
-    label: 'BLACK (2x)',
+    ink: '#cbd8ea',
   },
 };
 
 /** Upper bound on the breathing room around the reel band so glows are not clipped. */
 const BAND_MARGIN_MAX = 28;
+
+/** How many settled spins the in-canvas recent rail remembers. */
+const HISTORY_MAX = 16;
+
+/**
+ * Payout table drawn under the hero. Derived from the strip itself so it can
+ * never drift from what the reel actually pays.
+ */
+const LEGEND = ['green', 'red', 'black'].map((color) => {
+  const slots = ROULETTE_SLOTS.filter((s) => s.color === color);
+  return { color, name: color.toUpperCase(), mult: slots[0].multiplier, count: slots.length };
+});
 
 /**
  * Calculate provably fair roulette outcome slot (0-14).
@@ -145,6 +159,7 @@ export class RouletteGame {
     this._dpr = 1;
     this._result = null;      // last settled outcome, drives the winner treatment
     this._settleAt = 0;
+    this._history = [];       // settled spins, newest first — feeds the in-canvas rail
     this._prefersReduced = false;
     this._ambientId = null;
     this._lastAmbient = 0;
@@ -272,62 +287,136 @@ export class RouletteGame {
    * Derive every geometry constant from the live canvas size. Runs on resize
    * only — the render loop must never do layout maths per frame.
    *
-   * A horizontal strip is the one stage shape that fights a portrait phone, so
-   * card size is driven by the height while the *number* of visible cards is
-   * driven by the width. A 296px phone therefore shows ~3.5 full-size slots
-   * instead of 11 illegible slivers, and an 800x200 landscape phone fills its
-   * width with ~9.
+   * Roulette is the most horizontal stage in the suite, so a portrait phone
+   * (0.57) is its worst case. Filling that box with card height would only buy
+   * fewer, taller pillars, so instead:
+   *
+   *   - the card keeps a portrait aspect (0.70–0.78) and its width keeps ~3.3
+   *     cards on screen, so a 366px stage still reads as a moving reel;
+   *   - every pixel the card refuses becomes stacked HUD — status caption,
+   *     recent-results rail, payout hero, payout table — laid out as one
+   *     vertical stack, so the reel sits as a band with real content above and
+   *     below it instead of floating in dead space;
+   *   - HUD is given up from the bottom (table, then rail, then hero) the
+   *     moment it would push the card under its floor, and a landscape phone
+   *     (h < 250) keeps exactly the reel-only arrangement it already had.
    */
   _computeLayout() {
     const w = this.width;
     const h = this.height;
     const cl = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-    const outer = cl(Math.min(w, h) * 0.035, 4, 16);
-    const labelSize = cl(Math.min(w, h) / 26, 9, 13);
-    const labelRow = labelSize * 1.55;
-
-    // Below ~250px tall there is no room for a payout hero under the reel, so
-    // the band claims that budget and the result rides the status label instead.
+    // Below ~250px tall there is no room for anything but the reel, and the
+    // status caption carries the result instead of a hero.
     const compact = h < 250;
-    const heroRow = compact ? 0 : cl(h * 0.26, 64, 132);
+    // Type is keyed on the whole box, not its short edge: a 366x630 stage has
+    // the room for a 14px caption even though min(w, h) argues for 11.
+    const ref = Math.sqrt(w * h);
 
-    // Solve card height against the vertical budget rather than guessing at it:
-    // bandH = 1.26*slotH and each pointer overhang is <= 0.115*bandH + nudge, so
-    // the band+pointer footprint is 1.23*bandH + 2*nudge.
+    const outer = cl(Math.min(w, h) * 0.035, 4, 16);
+    const labelSize = compact
+      ? cl(Math.min(w, h) / 26, 9, 13)
+      : cl(Math.min(ref / 34, h / 19), 9, 17);
+    const labelRow = labelSize * (compact ? 1.55 : 1.8);
     const nudge = cl(h * 0.022, 2, 7);
-    const avail = h - outer * 2 - labelRow - heroRow;
-    const slotHCap = Math.max(28, (avail - nudge * 2) / (1.23 * 1.26));
-    const slotH = cl(compact ? h * 0.62 : h * 0.34, 34, Math.min(126, slotHCap));
+    const budget = h - outer * 2;
 
-    // Cards stay portrait. The width cap keeps ~3 of them on the narrowest
-    // stage — fewer than that and the strip stops reading as a moving reel.
-    const slotW = Math.max(34, Math.min(slotH * 0.78, w / 3.3));
+    /* ---- HUD blocks, in the order they are given up ---- */
+    const heroSize = cl(Math.min(ref * 0.135, h * 0.15), 20, 78);
+    const heroSub = cl(heroSize * 0.26, 9, 15);
+    const heroRow = heroSize * 1.24 + heroSub * 1.9;
+
+    const histChipH = cl(ref * 0.076, 22, 40);
+    const histCapSize = cl(labelSize * 0.82, 8, 12);
+    // On the smallest stage a caption costs as much vertical room as the chips
+    // it labels, and a row of coloured result chips needs no label anyway.
+    const histCapShown = histChipH > 26;
+    const histRow = histChipH + (histCapShown ? histCapSize * 1.9 : 0);
+
+    // The payout table is finger-sized or it is not drawn at all.
+    const legendH = cl(ref * 0.105, 48, 60);
+
+    /* ---- card geometry ---- */
+    // Width decides how many cards are on screen, height how big they are, and
+    // the aspect cap stops a tall box from stretching them into pillars.
+    const slotWCap = Math.max(30, w / 3.25 / 1.075);
+    const aspectCap = slotWCap / 0.7;
+    // The reel is the primary element: HUD may take the surplus height, never
+    // the card's own share.
+    const slotFloor = Math.min((slotWCap / 0.78) * 0.9, 74 + h * 0.09);
+
+    // bandH = slotH + 2*bandPad (<= 1.26*slotH) and each pointer overhang is
+    // nudge + 0.115*bandH, so the band's footprint is 1.23*bandH + 2*nudge.
+    const solve = (hud) => (budget - hud - nudge * 2) / (1.23 * 1.26);
+
+    let histShown = !compact;
+    let heroShown = !compact;
+    let legendShown = !compact;
+    let gap = compact ? 0 : cl(ref * 0.024, 5, 15);
+    // One gap per seam in the stack: caption | rail | band | hero | table.
+    const seams = () => (compact ? 0 : 1 + (histShown ? 1 : 0) + (heroShown ? 1 : 0) + (legendShown ? 1 : 0));
+    const hudRows = () => labelRow
+      + (histShown ? histRow : 0)
+      + (heroShown ? heroRow : 0)
+      + (legendShown ? legendH : 0)
+      + seams() * gap;
+
+    let slotH = solve(hudRows());
+    if (slotH < slotFloor && legendShown) { legendShown = false; slotH = solve(hudRows()); }
+    if (slotH < slotFloor && histShown) { histShown = false; slotH = solve(hudRows()); }
+    if (slotH < slotFloor && heroShown) { heroShown = false; slotH = solve(hudRows()); }
+    slotH = cl(slotH, 30, Math.min(aspectCap, 190));
+
+    const slotW = Math.max(30, Math.min(slotH * 0.78, slotWCap));
     const slotGap = cl(slotW * 0.075, 3, 8);
     const pitch = slotW + slotGap;
 
     const bandPad = cl(slotH * 0.13, 5, 16);
     const bandH = slotH + bandPad * 2;
-
     const ptrTri = cl(bandH * 0.1, 5.5, 12);
     const ptrOver = nudge + ptrTri * 1.15;      // beam overshoot + cap triangle
 
-    // Band rides above centre when a hero follows it, dead centre when it does
-    // not; the clamps keep both pointer caps and the status label on-canvas.
-    let bandY = h * (compact ? 0.5 : 0.44) - bandH / 2;
-    bandY = Math.max(bandY, outer + labelRow + ptrOver);
-    bandY = Math.min(bandY, h - outer - ptrOver - bandH);
-    // Degenerate stage (band taller than the whole budget): centre and let the
-    // label fall off rather than drawing above the top edge.
-    if (bandY < 0) bandY = Math.max(0, (h - bandH) / 2);
+    // Height the aspect cap refused goes back into the stack's rhythm first;
+    // whatever is still over centres the stack.
+    let slack = budget - (hudRows() + bandH + ptrOver * 2);
+    const seamCount = seams();
+    if (slack > 0 && seamCount > 0) {
+      // A seam may stretch to 2.6x its base before the rest becomes margin;
+      // past that the stack reads as five loose rows rather than one column.
+      const grow = Math.min(slack / seamCount, gap * 1.6);
+      gap += grow;
+      slack -= grow * seamCount;
+    }
+
+    /* ---- stack the rows top to bottom ---- */
+    let y = outer + (slack > 0 ? slack * 0.5 : 0);
+    const labelY = y + labelRow * 0.5;
+    y += labelRow + gap;
+
+    const histCapY = y + histCapSize * 0.95;
+    const histY = y + (histCapShown ? histCapSize * 1.9 : 0);
+    if (histShown) y += histRow + gap;
+
+    let bandY = y + ptrOver;
+    // Degenerate stage (the band alone outgrows the budget): centre it and let
+    // the caption fall off rather than drawing above the top edge.
+    if (bandY + bandH + ptrOver > h) bandY = Math.max(0, (h - bandH) / 2);
     bandY = Math.round(bandY);
 
-    const belowRoom = h - (bandY + bandH + ptrOver) - outer;
-    const heroShown = !compact && belowRoom >= 54;
+    // Everything below hangs off the band's real position, so the degenerate
+    // clamp above can never leave the hero floating over the reel.
+    y = bandY + bandH + ptrOver;
+    const heroY = y + gap + heroSize * 0.62;
+    const heroSubY = y + gap + heroSize * 1.24 + heroSub * 0.95;
+    if (heroShown) y += gap + heroRow;
+    const legendY = Math.round(y + gap);
+
+    /* ---- horizontal rails ---- */
     const trackX = cl(w * 0.02, 3, 14);
-    // The band is blitted as one rectangle, margins included, so its glow
-    // headroom cannot exceed the room actually left above and below it.
-    const bandMargin = Math.max(0, Math.min(cl(slotH * 0.26, 10, BAND_MARGIN_MAX), bandY, h - bandY - bandH));
+    const trackW = Math.max(40, w - trackX * 2);
+    const histChipW = histChipH * 1.35;                 // fits two digits
+    const histChipGap = Math.max(3, histChipH * 0.16);
+    const legendGap = cl(w * 0.02, 5, 14);
 
     this.slotWidth = slotW;
     this.slotGap = slotGap;
@@ -336,17 +425,21 @@ export class RouletteGame {
     this._m = {
       compact, labelSize, slotH, slotW, slotGap, pitch,
       bandPad, bandH, bandY,
-      bandMargin,
+      // The band is blitted as one rectangle, margins included, so its glow
+      // headroom cannot exceed the room actually left above and below it.
+      bandMargin: Math.max(0, Math.min(cl(slotH * 0.26, 10, BAND_MARGIN_MAX), bandY, h - bandY - bandH)),
       nudge, ptrTri, ptrOver,
       ptrAura: cl(pitch * 0.26, 9, 28),
       ptrBeam: cl(bandH * 0.02, 1.6, 3.4),
       trackX,
-      trackW: Math.max(40, w - trackX * 2),
+      trackW,
       trackR: cl(bandH * 0.13, 8, 18),
-      labelY: bandY - ptrOver - labelSize * 0.6,
-      heroShown,
-      heroSize: heroShown ? cl(belowRoom * 0.42, 18, 56) : 0,
-      heroY: bandY + bandH + ptrOver + belowRoom * 0.44,
+      labelY,
+      histShown, histCapShown, histY, histCapY, histCapSize, histChipH, histChipW, histChipGap,
+      histCount: cl(Math.floor((trackW + histChipGap) / (histChipW + histChipGap)), 3, HISTORY_MAX),
+      heroShown, heroSize, heroSub, heroY, heroSubY,
+      legendShown, legendY, legendH, legendGap,
+      legendW: Math.min((trackW - legendGap * 2) / 3, 210),
     };
   }
 
@@ -556,6 +649,7 @@ export class RouletteGame {
             nonce,
           };
 
+          this._pushHistory(result);
           this._result = result;
           this._settleAt = now;
           this._blurPx = 0;
@@ -702,8 +796,10 @@ export class RouletteGame {
     /* --- gold centre pointer --- */
     this._drawPointer(ctx, centerX, bandY, bandH, now);
 
-    /* --- captions & payout hero --- */
+    /* --- stacked HUD: status, recent rail, payout hero, payout table --- */
     this._drawReadout(ctx, centerX, settleT);
+    if (m.histShown) this._drawHistory(ctx, centerX, now);
+    if (m.legendShown) this._drawLegend(ctx, centerX, settleT);
   }
 
   /** Soft radial bloom. Local helper — theme.paintStage only carries one glow. */
@@ -1081,11 +1177,23 @@ export class RouletteGame {
       this._label(ctx, text, cx, m.labelY, { size: m.labelSize, color });
     }
 
-    // A short stage spends its whole budget on the reel; the label above
+    // A landscape stage spends its whole budget on the reel; the caption above
     // carries the result there instead.
-    if (!m.heroShown || !res) return;
-
+    if (!m.heroShown) return;
     const size = m.heroSize;
+
+    if (!res) {
+      // Hold the hero's slot open so the stack does not jump when a result
+      // lands — a third of a portrait stage popping into place reads as a bug.
+      T.heroText(ctx, this.spinning ? '· · ·' : '—', cx, m.heroY, {
+        size, color: T.PALETTE.slateHi, blur: 0,
+      });
+      this._label(ctx, this.spinning ? 'In play' : 'Payout', cx, m.heroSubY, {
+        size: m.heroSub, color: T.PALETTE.textFaint,
+      });
+      return;
+    }
+
     const win = res.payout > 0;
     const heroColor = win
       ? (res.multiplier >= 14 ? T.PALETTE.gold : T.PALETTE.mint)
@@ -1101,17 +1209,133 @@ export class RouletteGame {
       ? `$${res.payout.toFixed(2)}`
       : `${res.multiplier.toFixed(2)}x`;
     T.heroText(ctx, heroText, cx, m.heroY + lift, { size, color: heroColor, blur: size * 0.46 });
-    // Offset by the hero's descender *plus* the caption's own height: a flat
-    // 0.72em gap was tuned for the 56px desktop hero and collides at 30px.
-    const subSize = Math.max(8, Math.min(11, size * 0.24));
     this._label(
       ctx,
       res.totalBet > 0 ? (win ? 'Payout' : 'No win') : 'Result',
       cx,
-      m.heroY + lift + size * 0.62 + subSize * 0.9,
-      { size: subSize, color: T.PALETTE.textFaint },
+      m.heroSubY + lift,
+      { size: m.heroSub, color: T.PALETTE.textFaint },
     );
     ctx.restore();
+  }
+
+  /**
+   * Recent-results rail. The DOM history rail is hidden below 720px, so on a
+   * phone this is the only place the last spins are visible at all.
+   */
+  _drawHistory(ctx, cx, now) {
+    const m = this._m;
+    const cw = m.histChipW;
+    const ch = m.histChipH;
+    const step = cw + m.histChipGap;
+    const n = m.histCount;
+    const y = m.histY;
+    const r = Math.max(3, ch * 0.28);
+    const numSize = Math.max(8, Math.round(Math.min(ch * 0.5, cw * 0.44)));
+    let x = cx - (n * step - m.histChipGap) / 2;
+
+    if (m.histCapShown) {
+      this._label(ctx, 'Recent', cx, m.histCapY, { size: m.histCapSize, color: T.PALETTE.textFaint });
+    }
+
+    // The newest chip keeps the winner's bloom for a beat after it lands.
+    const fresh = this._result ? Math.exp(-Math.max(0, (now - this._settleAt) / 1000) * 2.4) : 0;
+
+    for (let i = 0; i < n; i++, x += step) {
+      const entry = this._history[i];
+      ctx.save();
+      if (!entry) {
+        // Empty sockets keep the rail's width stable from the first spin on.
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';
+        T.roundRect(ctx, x, y, cw, ch, r);
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      const style = COLOR_STYLES[entry.color];
+      ctx.globalAlpha = 1 - (i / n) * 0.5;      // the rail fades into its past
+      if (i === 0 && fresh > 0.02) {
+        ctx.shadowColor = T.alpha(style.glow, 0.9);
+        ctx.shadowBlur = ch * 0.85 * fresh;
+      }
+      ctx.fillStyle = style.mid;
+      T.roundRect(ctx, x, y, cw, ch, r);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = style.rim;
+      ctx.lineWidth = 1;
+      T.roundRect(ctx, x + 0.5, y + 0.5, cw - 1, ch - 1, r);
+      ctx.stroke();
+      ctx.fillStyle = style.fg;
+      ctx.font = `800 ${numSize}px Inter, 'Roboto Mono', monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(entry.number), x + cw / 2, y + ch / 2);
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Payout table: what each colour pays and how many of the 15 slots carry it.
+   * Chips are never drawn under 48px tall, so the row stays finger-sized on the
+   * narrowest stage that can afford it.
+   */
+  _drawLegend(ctx, cx, settleT) {
+    const m = this._m;
+    const res = this._result;
+    const flash = res ? Math.exp(-settleT * 2.2) : 0;
+    const cw = m.legendW;
+    const chH = m.legendH;
+    const step = cw + m.legendGap;
+    const y = m.legendY;
+    const r = Math.max(6, chH * 0.26);
+    const multSize = Math.max(12, Math.round(Math.min(chH * 0.36, cw * 0.26)));
+    // Sized against the chip's width too: a tall-but-narrow stage would
+    // otherwise push "BLACK · 7/15" past the chip edge.
+    const nameSize = Math.max(8, Math.min(chH * 0.2, cw * 0.088));
+    let x = cx - (LEGEND.length * step - m.legendGap) / 2;
+
+    for (const item of LEGEND) {
+      const style = COLOR_STYLES[item.color];
+      const isWin = !!res && res.color === item.color;
+
+      ctx.save();
+      if (isWin) {
+        ctx.shadowColor = T.alpha(style.glow, 0.5 + 0.4 * flash);
+        ctx.shadowBlur = chH * (0.3 + 0.35 * flash);
+      }
+      ctx.fillStyle = T.alpha(style.mid, isWin ? 0.5 : 0.2);
+      T.roundRect(ctx, x, y, cw, chH, r);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = T.alpha(style.glow, isWin ? 0.85 : 0.28);
+      ctx.lineWidth = isWin ? 1.75 : 1;
+      T.roundRect(ctx, x + 0.9, y + 0.9, cw - 1.8, chH - 1.8, r);
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `900 ${multSize}px Inter, 'Roboto Mono', monospace`;
+      ctx.fillStyle = isWin ? T.PALETTE.white : style.ink;
+      ctx.fillText(`${item.mult}x`, x + cw / 2, y + chH * 0.63);
+      ctx.restore();
+
+      this._label(ctx, `${item.name} · ${item.count}/15`, x + cw / 2, y + chH * 0.29, {
+        size: nameSize,
+        color: isWin ? T.PALETTE.text : T.PALETTE.textFaint,
+      });
+      x += step;
+    }
+  }
+
+  /**
+   * Record a settled spin for the recent rail. Presentation only: nothing here
+   * feeds a payout, and it must never throw — it runs inside the rAF body that
+   * owns the spin promise.
+   */
+  _pushHistory(result) {
+    this._history.unshift({ number: result.number, color: result.color });
+    if (this._history.length > HISTORY_MAX) this._history.length = HISTORY_MAX;
   }
 
   /** Letterspaced caption — theme.caption uppercases but does not track. */

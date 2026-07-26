@@ -23,6 +23,13 @@ const SHAKE_MS = 300;
 const DECK_FAN = 4;
 /** Playing-card aspect (w/h). Every card on the stage keeps it. */
 const CARD_AR = 150 / 210;
+/**
+ * How much of its region the hero card plus the fanned deck behind it claim.
+ * Past this layoutDeck stops offsetting the deck and tucks it behind the card
+ * instead — a visible sliver of deck is worth far less than a bigger hero, and
+ * on a 296 px board that trade alone is 27 % of the card.
+ */
+const DECK_SHARE = 1.18;
 /** Below this panel width the odds rows switch to their stacked compact form. */
 const ODDS_COMPACT_W = 118;
 /** Reusable opts for every face-down card; theme.card() never mutates it. */
@@ -47,6 +54,26 @@ function clamp01(v) {
 /** Clamp v into [lo, hi]. */
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * Hero card height a candidate arrangement can seat. Three ceilings: the band
+ * it sits in, the region it shares with the deck, and a stage-tracking cap so
+ * a tall phone grows the card while square, tablet, desktop and landscape stay
+ * exactly where they were. Used to cost the arrangements against each other.
+ *
+ * The only floor is a positive-size guard. Anything larger would let the card
+ * outgrow the band it sits in on an absurd box and punch through the odds
+ * board and the readout; it never binds above a ~26 px band, so no reachable
+ * stage sees it.
+ *
+ * @param {number} band Vertical space available to the card.
+ * @param {number} regionW Horizontal space shared with the fanned deck.
+ * @param {number} hCap Stage-level ceiling.
+ * @returns {number} Card height in CSS pixels.
+ */
+function cardFit(band, regionW, hCap) {
+  return Math.max(8, Math.min(band * 0.94, hCap, regionW / DECK_SHARE / CARD_AR));
 }
 
 /**
@@ -319,15 +346,16 @@ export class HiloGame {
     this.stars = T.createStarfield(72, 0x51d0);
     this.cardOpts = { rank: 'A', suit: 'spades', faceUp: true, glow: 0, glowColor: T.PALETTE.mint };
     this.lay = {
-      w: 0, h: 0, s: 1, rail: false, pad: 16,
+      w: 0, h: 0, s: 1, ts: 1, rail: false, tall: false, pad: 16,
       cardW: 150, cardH: 210, cx: 400, cy: 250,
       deckX: 277, deckY: 256, deckW: 132, deckH: 185,
       deckFan: DECK_FAN, deckStepX: 5, deckStepY: 4,
-      oddsW: 142, oddsH: 46, oddsGap: 9, oddsSide: true, oddsX: 0, oddsY: 0, oddsCompact: false,
+      oddsW: 142, oddsH: 46, oddsGap: 9, oddsX: 0, oddsY: 0,
+      oddsMode: 'side', oddsStack: true, oddsCompact: false,
       histX: 22, histY: 36, histW: 300, histCardW: 30, histCardH: 42, histGap: 7,
       histLabelY: 22, histLabelSize: 9.5, histMax: 8,
       pillPanel: true, pillW: 160, pillH: 48, pillX: 0, pillY: 0,
-      readoutW: 360, readoutH: 80, readoutX: 0, readoutY: 0,
+      readoutW: 360, readoutH: 80, readoutX: 0, readoutY: 0, readoutSplit: false,
       driftX: 44, driftY: 34, ringMax: 36,
     };
     this.bloom = null;
@@ -1037,10 +1065,10 @@ export class HiloGame {
    * Recompute stage geometry. Values live on a persistent object so the draw
    * path allocates nothing per frame.
    *
-   * Two arrangements: a stacked column (history / card+odds / readout) for
-   * square-ish stages, and a three-column rail for short landscape stages
-   * (phone landscape is ~800x200 — four stacked bands simply do not fit).
-   * Every metric is derived from the live box; nothing is a fixed pixel.
+   * Two arrangements: a stacked column (history / card / odds / readout) for
+   * square and portrait stages, and a three-column rail for short landscape
+   * stages (phone landscape is ~800x200 — four stacked bands simply do not
+   * fit). Every metric is derived from the live box; nothing is a fixed pixel.
    *
    * @returns {object} Layout metrics in CSS pixels.
    */
@@ -1053,41 +1081,61 @@ export class HiloGame {
     // 1.6 aspect at under 340 px tall is the point where the stacked bands
     // start eating the card; below it the rail always has room to spare.
     const rail = h < 340 && w >= h * 1.6;
+    // Geometry scale — paddings, gaps, deck fan, particle physics. Bound by
+    // the scarce axis, which on a phone is the width.
     const s = clamp(rail ? h / 300 : Math.min(w / 620, h / 440), 0.58, 1.06);
+    // Type scale — the geometric mean of both axes, so a 366x630 stage sets
+    // type off 0.92 rather than the 0.59 its width alone would buy. A rail
+    // stage keeps the geometry scale: 205 px of height cannot spend more.
+    const ts = rail ? s : clamp(Math.sqrt((w / 620) * (h / 440)), 0.62, 1.06);
     const pad = Math.round(clamp(Math.min(w, h) * 0.05, 10, 24));
     const gapX = Math.round(14 * s);
 
     L.w = w;
     L.h = h;
     L.s = s;
+    L.ts = ts;
     L.rail = rail;
+    // Portrait enough that the round badge is worth trading for a history
+    // strip and a cash-out readout that own the whole band width.
+    L.tall = !rail && h >= w * 1.3;
     L.pad = pad;
-    L.oddsGap = Math.max(4, Math.round(8 * s));
-    L.histLabelSize = clamp(10 * s, 8.5, 11);
+    L.oddsGap = Math.max(4, Math.round(8 * ts));
+    L.histLabelSize = clamp(11 * ts, 9, 13);
+    // The badge box is geometry — it competes with the history strip for the
+    // top band, so it stays on `s`; only its type rides `ts`.
     L.pillH = Math.round(clamp(46 * s, 30, 52));
     L.pillW = Math.round(clamp(150 * s, 88, 168));
     // 56 px floor: the readout is the mid-round cash-out affordance and has to
-    // stay a comfortable target next to the fixed bottom bet bar.
-    L.readoutH = Math.round(clamp(94 * s, 56, 98));
+    // stay a comfortable target next to the fixed bottom bet bar. On a tall
+    // stage it grows with the height instead of banking it as dead margin.
+    L.readoutH = rail
+      ? Math.round(clamp(94 * s, 56, 98))
+      : Math.round(clamp(Math.max(94 * s, h * 0.145), 56, 118));
 
     if (rail) this.layoutRail(L, w, h, s, pad, gapX);
     else this.layoutStacked(L, w, h, s, pad, gapX);
 
     this.layoutDeck(L);
     L.oddsCompact = L.oddsW < ODDS_COMPACT_W;
+    // Two value columns plus a divider need both axes; under that the readout
+    // keeps its single centred column.
+    L.readoutSplit = L.readoutW >= 250 && L.readoutH >= 72;
     L.histCardW = Math.round(L.histCardH * CARD_AR);
     L.histGap = Math.max(3, Math.round(L.histCardW * 0.22));
     L.histMax = Math.round(clamp(
-      Math.floor((L.histW + L.histGap) / (L.histCardW + L.histGap)), 1, 8,
+      Math.floor((L.histW + L.histGap) / (L.histCardW + L.histGap)), 1, 12,
     ));
 
     // Deal drift and the reveal ring both grow outward from the hero card, so
     // they are budgeted from the free margin around it — a rail stage has the
-    // card nearly filling the height and cannot afford the roomy version.
+    // card nearly filling the height and cannot afford the roomy version, and
+    // a portrait one has the card nearly filling its column.
     const freeY = Math.min(L.cy - L.cardH / 2, h - (L.cy + L.cardH / 2));
+    const freeX = Math.min(L.cx - L.cardW / 2, w - (L.cx + L.cardW / 2));
     L.driftX = L.cardW * 0.29;
     L.driftY = Math.min(L.cardH * 0.16, Math.max(0, freeY * 0.6));
-    L.ringMax = Math.max(2, Math.min(L.cardW * 0.24, freeY - 1));
+    L.ringMax = Math.max(2, Math.min(L.cardW * 0.24, freeY - 1, freeX - 1));
 
     return L;
   }
@@ -1113,7 +1161,8 @@ export class HiloGame {
     L.cx = pad + Math.round(colA / 2);
     L.cy = Math.round(h / 2);
 
-    L.oddsSide = true;
+    L.oddsMode = 'side';
+    L.oddsStack = true;
     L.oddsW = colB;
     L.oddsX = pad + colA + gapX;
     L.oddsH = Math.floor((bandH - L.oddsGap * 2) / 3);
@@ -1136,8 +1185,22 @@ export class HiloGame {
   }
 
   /**
-   * Square / portrait arrangement: history band, card (with the odds board
-   * beside or below it), readout pinned to the bottom.
+   * Square / portrait arrangement: history band, hero card, odds board and the
+   * readout pinned to the bottom.
+   *
+   * The odds board takes one of three shapes. Each is costed by the hero card
+   * it can seat and the tallest wins, so the card never shrinks as the stage
+   * grows:
+   *  - `below` — three full-bleed rows under the card. Only on a portrait
+   *    stage, and only when its card comes within 4 % of the best rival; it is
+   *    the one shape wide enough to run the label / chance / multiplier split
+   *    instead of the compact stack, so it earns that much. This is the
+   *    0.57-ratio phone.
+   *  - `side`  — a narrow column beside the card. Costs nothing vertically, so
+   *    it wins whenever height is the scarce axis (square, tablet, desktop).
+   *  - `row`   — a three-up strip under the card, for stages too narrow to
+   *    spare a side column at all.
+   *
    * @param {object} L @param {number} w @param {number} h
    * @param {number} s @param {number} pad @param {number} gapX
    */
@@ -1151,54 +1214,76 @@ export class HiloGame {
     L.histLabelY = pad + Math.round(7 * s);
     L.histY = L.histLabelY + Math.round(11 * s);
 
-    // The badge shares the top band, so the strip only gets what is left of it.
+    // A portrait stage spends the badge's width on history instead: the state
+    // rides the strip label as coloured text and the row gets the whole band,
+    // which is worth three more minis on a 366 px phone.
     const bandW = w - pad * 2;
-    L.pillPanel = (bandW - L.pillW - gapX) >= 3 * (histCardW + histGap);
-    L.pillX = w - pad - L.pillW;
-    L.pillY = pad;
+    L.pillPanel = !L.tall && (bandW - L.pillW - gapX) >= 3 * (histCardW + histGap);
+    L.pillX = L.pillPanel ? w - pad - L.pillW : w - pad;
+    L.pillY = L.pillPanel ? pad : L.histLabelY;
     L.histW = L.pillPanel ? bandW - L.pillW - gapX : bandW;
 
     const stripH = (L.histY - pad) + L.histCardH + Math.round(9 * s);
-    L.readoutW = Math.round(Math.min(bandW, clamp(400 * s, 210, 420)));
+    L.readoutW = L.tall ? bandW : Math.round(Math.min(bandW, clamp(400 * s, 210, 420)));
     L.readoutX = Math.round((w - L.readoutW) / 2);
     L.readoutY = h - pad - L.readoutH;
 
     const top = pad + stripH;
-    const midH = L.readoutY - Math.round(12 * s) - top;
+    const gapY = Math.round(12 * s);
+    const midH = L.readoutY - gapY - top;
 
-    // A side column needs the card's own share of the width on top of its own.
-    // 296 px still clears this: a shorter card beside the board beats a taller
-    // one with the three rows stealing a whole band underneath it.
+    // Each arrangement is costed by the hero card it can actually seat, so the
+    // card can never shrink as the stage grows — the modes cross over where
+    // they agree instead of stepping.
     const oddsColW = Math.round(clamp(148 * s, 92, 168));
-    L.oddsSide = bandW >= oddsColW + Math.round(290 * s);
+    const rowH = Math.round(clamp(52 * s, 34, 58));
+    const stackH = Math.round(clamp(
+      midH * 0.34, 3 * 44 + L.oddsGap * 2, 3 * 76 + L.oddsGap * 2,
+    ));
+    // A side column needs the card's own share of the width on top of its own.
+    const canSide = bandW >= oddsColW + Math.round(290 * s);
+    const hCap = Math.max(270, h * 0.42);
+    const belowCard = cardFit(midH - stackH - gapY, bandW, hCap);
+    const rowCard = cardFit(midH - rowH - gapY, bandW, hCap);
+    const sideCard = canSide ? cardFit(midH, bandW - oddsColW - gapX, hCap) : 0;
 
-    const rowH = L.oddsSide ? 0 : Math.round(clamp(52 * s, 34, 58));
-    const rowGap = L.oddsSide ? 0 : Math.round(10 * s);
-    const cardBand = midH - rowH - rowGap;
-    const regionX1 = L.oddsSide ? (w - pad - oddsColW - gapX) : (w - pad);
+    // Full-bleed rows buy the only odds shape wide enough for the label /
+    // chance / multiplier split, plus a band-width history and readout. That
+    // is worth up to 4 % of the hero card — below that the card wins.
+    if (L.tall && belowCard >= Math.max(sideCard, rowCard) * 0.96) L.oddsMode = 'below';
+    else if (canSide) L.oddsMode = 'side';
+    else L.oddsMode = 'row';
+    L.oddsStack = L.oddsMode !== 'row';
+
+    const below = L.oddsMode === 'below' ? stackH : L.oddsMode === 'row' ? rowH : 0;
+    const cardBand = below > 0 ? midH - below - gapY : midH;
+    const regionX1 = L.oddsMode === 'side' ? (w - pad - oddsColW - gapX) : (w - pad);
     const regionW = regionX1 - pad;
 
-    // no lower floor above the band: a floor taller than the space it sits in
-    // would push the hero card straight through the readout
-    let cardH = Math.max(24, Math.min(cardBand * 0.94, 270));
-    let cardW = cardH * CARD_AR;
-    const capW = regionW / 1.5; // room for the fanned deck beside the card
-    if (cardW > capW) { cardW = capW; cardH = cardW / CARD_AR; }
-    L.cardW = Math.round(cardW);
-    L.cardH = Math.round(cardH);
+    L.cardH = Math.round(L.oddsMode === 'below' ? belowCard
+      : L.oddsMode === 'side' ? sideCard : rowCard);
+    L.cardW = Math.round(L.cardH * CARD_AR);
     L.cx = pad + Math.round(regionW / 2);
     L.cy = Math.round(top + cardBand / 2);
 
-    if (L.oddsSide) {
+    if (L.oddsMode === 'side') {
       L.oddsW = oddsColW;
       L.oddsX = regionX1 + gapX;
-      L.oddsH = Math.round(clamp(Math.floor((midH - L.oddsGap * 2) / 3), 32, 82));
+      // Only a positive-size guard below: a 32 px floor cannot be honoured by
+      // a band that short, and paying it anyway walks the column into the
+      // readout. It never binds above a ~110 px mid band.
+      L.oddsH = Math.max(8, Math.min(Math.floor((midH - L.oddsGap * 2) / 3), 82));
       L.oddsY = Math.round(L.cy - (L.oddsH * 3 + L.oddsGap * 2) / 2);
+    } else if (L.oddsMode === 'below') {
+      L.oddsW = bandW;
+      L.oddsX = pad;
+      L.oddsH = Math.floor((below - L.oddsGap * 2) / 3);
+      L.oddsY = top + cardBand + gapY;
     } else {
       L.oddsW = Math.floor((bandW - L.oddsGap * 2) / 3);
       L.oddsX = pad;
       L.oddsH = rowH;
-      L.oddsY = top + cardBand + rowGap;
+      L.oddsY = top + cardBand + gapY;
     }
   }
 
@@ -1456,14 +1541,15 @@ export class HiloGame {
 
     const card = this.activeCard;
     if (!card) {
-      const hintSize = clamp(10.5 * L.s, 8.5, 12);
-      // on a rail stage the card fills the height — tuck the hint back inside
-      const hintY = Math.min(
-        L.cy + L.cardH / 2 + Math.round(16 * L.s),
-        L.h - L.pad - hintSize * 0.5,
-      );
+      // On the card, not under it: every arrangement now runs the hero card at
+      // 94 % of its band, so there is no strip of air below it to sit in. Sized
+      // off the card so it grows with the hero rather than with the stage.
       this.drawCardAt(ctx, L.cx, L.cy + bob, L.cardW, L.cardH, 0, BACK_CARD, 1, 1);
-      T.caption(ctx, 'AWAITING DEAL', L.cx, hintY, { size: hintSize });
+      const hintSize = clamp(L.cardW * 0.085, 9, 16);
+      T.caption(ctx, 'AWAITING DEAL', L.cx, L.cy + bob + L.cardH * 0.3, {
+        size: fitSize(ctx, 'AWAITING DEAL', L.cardW * 0.82, hintSize),
+        color: T.PALETTE.text,
+      });
       return;
     }
 
@@ -1502,9 +1588,14 @@ export class HiloGame {
   }
 
   /**
-   * Higher / Same / Lower odds board beside (or below) the active card.
-   * Narrow panels drop the left/right split for a centred stack — a 296 px
-   * stage gives each row ~85 px, far too little for label plus multiplier.
+   * Higher / Same / Lower odds board: a column beside the card, three
+   * full-bleed rows under it, or a three-up strip, per `L.oddsMode`.
+   *
+   * Narrow panels drop the left/right split for a centred stack — under
+   * ODDS_COMPACT_W there is not room for a label and a multiplier side by
+   * side. Every size comes off the panel box rather than the stage scale, so
+   * a 330x44 row on a 366 px phone reads as loudly as a 157x82 desktop
+   * column instead of inheriting the phone's 0.59 width scale.
    */
   drawOdds(ctx, L) {
     // After a bust the table shows the losing card while currentCard is still
@@ -1516,12 +1607,12 @@ export class HiloGame {
     const pw = L.oddsW;
     const ph = L.oddsH;
     const compact = L.oddsCompact;
-    const padX = Math.round(clamp(12 * L.s, 7, 14));
-    const radius = Math.round(clamp(11 * L.s, 7, 12));
+    const padX = Math.round(clamp(pw * 0.055, 8, 20));
+    const radius = Math.round(clamp(ph * 0.24, 7, 16));
     const inner = pw - padX * 2;
-    const labelSize = clamp(10.5 * L.s, 9, 12.5);
-    const multSize = clamp(17 * L.s, 12.5, 21);
-    const pctSize = clamp(9 * L.s, 8, 10.5);
+    const labelSize = clamp(ph * 0.27, 9, 15);
+    const multSize = clamp(ph * 0.44, 12.5, 28);
+    const pctSize = clamp(ph * 0.22, 8, 12);
     const threeLine = ph >= 44;
 
     ctx.save();
@@ -1530,8 +1621,8 @@ export class HiloGame {
       const row = ODDS_ROWS[i];
       const info = odds[row.key];
       if (!info) continue;
-      const x = L.oddsSide ? L.oddsX : L.oddsX + i * (pw + L.oddsGap);
-      const y = L.oddsSide ? L.oddsY + i * (ph + L.oddsGap) : L.oddsY;
+      const x = L.oddsStack ? L.oddsX : L.oddsX + i * (pw + L.oddsGap);
+      const y = L.oddsStack ? L.oddsY + i * (ph + L.oddsGap) : L.oddsY;
       const label = `${row.glyph} ${row.label}`;
       const mult = `${info.multiplier.toFixed(2)}\u00d7`;
       const pct = `${Math.round(info.probability * 100)}%`;
@@ -1630,7 +1721,7 @@ export class HiloGame {
     if (!L.pillPanel) {
       T.caption(ctx, label, L.pillX, L.pillY, {
         align: 'right',
-        size: fitSize(ctx, label, L.histW * 0.5, clamp(11 * L.s, 9, 12.5), 800),
+        size: fitSize(ctx, label, L.histW * 0.5, clamp(11.5 * L.ts, 9, 14), 800),
         weight: 800,
         color: col,
       });
@@ -1641,16 +1732,16 @@ export class HiloGame {
     const ph = L.pillH;
     const x = L.pillX;
     const y = L.pillY;
-    const padX = Math.round(clamp(13 * L.s, 8, 14));
+    const padX = Math.round(clamp(13 * L.ts, 8, 14));
     const inner = pw - padX * 2;
 
-    T.panel(ctx, x, y, pw, ph, { radius: Math.round(clamp(12 * L.s, 8, 14)), accent: col });
+    T.panel(ctx, x, y, pw, ph, { radius: Math.round(clamp(12 * L.ts, 8, 14)), accent: col });
     T.caption(ctx, 'ROUND', x + padX, y + ph * 0.32, {
-      align: 'left', size: clamp(9.5 * L.s, 8, 11),
+      align: 'left', size: clamp(10 * L.ts, 8.5, 12),
     });
     T.caption(ctx, label, x + padX, y + ph * 0.7, {
       align: 'left',
-      size: fitSize(ctx, label, inner, clamp(14 * L.s, 10.5, 15), 800),
+      size: fitSize(ctx, label, inner, clamp(14 * L.ts, 10.5, 16), 800),
       weight: 800,
       color: col,
     });
@@ -1658,8 +1749,13 @@ export class HiloGame {
 
   /**
    * Multiplier, payout and profit. This panel is the mid-round cash-out
-   * affordance, so its height floor (see computeLayout) keeps it readable as a
-   * target even on a 296 px board; every line is measured to fit its box.
+   * affordance, so its height floor (see computeLayout) keeps it a comfortable
+   * target even on a 296 px board, and every line is measured to fit its box.
+   *
+   * Wide enough and mid-round, it splits into two value columns — the live
+   * multiplier and, in gold, the cash it banks right now — so the thing the
+   * Cash Out button pays is the loudest number on the stage. Type is sized off
+   * the panel, never off the stage width.
    */
   drawReadout(ctx, L) {
     const pw = L.readoutW;
@@ -1667,23 +1763,65 @@ export class HiloGame {
     const x = L.readoutX;
     const y = L.readoutY;
     const mid = x + pw / 2;
-    const padX = Math.round(clamp(16 * L.s, 10, 18));
+    const padX = Math.round(clamp(pw * 0.05, 10, 24));
     const inner = pw - padX * 2;
     const col = this.stateColor();
     const mult = `${this.multDisplay.toFixed(2)}\u00d7`;
-    const status = this.statusLine();
+    const capSize = clamp(ph * 0.135, 8.5, 14);
+    const blur = Math.round(clamp(ph * 0.24, 10, 26));
+    const heroFamily = "Inter, 'Roboto Mono', monospace";
 
-    T.panel(ctx, x, y, pw, ph, { radius: Math.round(clamp(14 * L.s, 9, 16)), accent: col });
-    T.caption(ctx, 'MULTIPLIER', mid, y + ph * 0.2, {
-      size: clamp(10 * L.s, 8.5, 11.5),
-    });
+    T.panel(ctx, x, y, pw, ph, { radius: Math.round(clamp(ph * 0.17, 9, 18)), accent: col });
+
+    if (L.readoutSplit && this.state === 'in_game') {
+      const payout = this.getPayout();
+      const cash = `$${payout.toFixed(2)}`;
+      const profit = payout - this.betAmount;
+      const sign = profit >= 0 ? '+' : '-';
+      const foot = `PROFIT ${sign}$${Math.abs(profit).toFixed(2)}  \u00b7  ${this.cardHistory.length} CARDS`;
+      const valSize = clamp(ph * 0.34, 18, 40);
+      const colW = inner * 0.5;
+      const ruleX = Math.round(x + pw * 0.56) + 0.5;
+      const capY = y + ph * 0.25;
+      const valY = y + ph * 0.545;
+
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ruleX, y + ph * 0.16);
+      ctx.lineTo(ruleX, y + ph * 0.7);
+      ctx.stroke();
+      ctx.restore();
+
+      T.caption(ctx, 'MULTIPLIER', x + padX, capY, { align: 'left', size: capSize });
+      T.heroText(ctx, mult, x + padX, valY, {
+        size: fitSize(ctx, mult, colW, valSize, 900, heroFamily),
+        color: col, align: 'left', blur,
+      });
+      T.caption(ctx, 'CASH OUT', x + pw - padX, capY, {
+        align: 'right', size: capSize, color: T.PALETTE.textDim,
+      });
+      T.heroText(ctx, cash, x + pw - padX, valY, {
+        size: fitSize(ctx, cash, inner - colW - padX, valSize, 900, heroFamily),
+        color: T.PALETTE.gold, align: 'right', blur,
+      });
+      T.caption(ctx, foot, mid, y + ph * 0.845, {
+        size: fitSize(ctx, foot, inner, capSize), color: T.PALETTE.textDim,
+      });
+      return;
+    }
+
+    const status = this.statusLine();
+    T.caption(ctx, 'MULTIPLIER', mid, y + ph * 0.2, { size: capSize });
     T.heroText(ctx, mult, mid, y + ph * 0.52, {
-      size: fitSize(ctx, mult, inner, clamp(38 * L.s, 20, 40), 900, "Inter, 'Roboto Mono', monospace"),
+      size: fitSize(ctx, mult, inner, clamp(ph * 0.44, 20, 48), 900, heroFamily),
       color: col,
-      blur: Math.round(clamp(22 * L.s, 10, 24)),
+      blur,
     });
     T.caption(ctx, status, mid, y + ph * 0.83, {
-      size: fitSize(ctx, status.toUpperCase(), inner, clamp(10.5 * L.s, 8, 12)),
+      size: fitSize(ctx, status.toUpperCase(), inner, capSize),
       color: T.PALETTE.textDim,
     });
   }
@@ -1737,7 +1875,7 @@ export class HiloGame {
   drawFloaters(ctx) {
     const L = this.lay;
     const maxW = L.w - L.pad * 2;
-    const base = clamp(22 * L.s, 12, 24);
+    const base = clamp(24 * L.ts, 13, 30);
     for (let i = 0; i < this.floaters.length; i++) {
       const f = this.floaters[i];
       const a = Math.max(0, f.alpha);

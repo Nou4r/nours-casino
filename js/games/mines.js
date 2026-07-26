@@ -92,6 +92,31 @@ const TILE_COUNT = 25;
 /** Stat badges drawn around the board. */
 const BADGE_COUNT = 4;
 
+/**
+ * Smallest comfortable in-canvas tap band, CSS px. `tileAt` splits the board
+ * into GRID_SIDE equal bands, so a full-finger board needs GRID_SIDE * MIN_TAP.
+ */
+const MIN_TAP = 48;
+/** Chrome floors used when a short stage has to hand the board its tap floor. */
+const VGAP_MIN = 4;
+const BADGE_MIN = 26;
+const BAR_MIN = 40;
+
+/** Largest size any stage readout is allowed to reach. */
+const TYPE_MAX = 34;
+/** Glyph runs: "12.34x" in 900 Inter is ~3.6em, "$1234.56" in 800 mono ~4.8em. */
+const VAL_EM = 3.6;
+const PAY_EM = 4.8;
+
+/**
+ * Box height past which a readout stops growing. Its type is capped three
+ * ways — by TYPE_MAX, by the box height (`ratio` of it), and independently by
+ * the box width, since an `em`-em glyph run has to fit `w` minus its side
+ * padding. Past this height the box is only adding air, so the layout hands
+ * the surplus to something that can still use it.
+ */
+const typeCeil = (w, sidePad, em, ratio) => Math.min(TYPE_MAX, Math.max(0, w - sidePad) / em) / ratio;
+
 /** Reveal pop duration, milliseconds. */
 const POP_MS = 280;
 /** Stagger between cascade-revealed mines, milliseconds. */
@@ -771,48 +796,120 @@ export class MinesGame {
     return railed && railed.side > stacked.side ? railed : stacked;
   }
 
-  /** Chrome above and below the board — phone portrait, tablet, square stages. */
+  /**
+   * Chrome above and below the board — phone portrait, tablet, square stages.
+   *
+   * The board is square, so on a tall stage it is bound by the stage width and
+   * the leftover vertical budget is real estate, not slack: at 366x630 a board
+   * centred in its band strands ~130px as dead margin above and below itself.
+   * That budget goes to the stat block and the action bar instead. A short
+   * stage runs the other way — the chrome gives ground until the board's tap
+   * bands hit their floor.
+   */
   stackedLayout(w, h, pad) {
     const avail = h - pad * 2;
-    let vgap = clamp(Math.min(w, h) * 0.025, 5, 16);
-    let badgeH = clamp(h * 0.115, 30, 58);
-    let barH = clamp(h * 0.125, 40, 54); // 40 keeps the in-canvas chip a tap target
+    const maxSide = w - pad * 2;
 
-    // Chrome never eats more than half the vertical budget: on a short stage the
-    // badges and the action bar shrink so the board stays the subject.
-    const chrome = badgeH + barH + vgap * 2;
+    let vgap = clamp(Math.min(w, h) * 0.025, 5, 16);
+    let block = clamp(h * 0.115, 30, 58);
+    let barH = clamp(h * 0.125, MIN_TAP, 56);
+
+    // Tap floor for the board: five bands of MIN_TAP, plus 2 to keep float
+    // rounding off the line. Slack is shed in tap-priority order, so the stat
+    // block — the one part nobody touches — is the first to give ground and
+    // the action chip the last.
+    const floorSide = Math.min(maxSide, GRID_SIDE * MIN_TAP + 2);
+    let deficit = floorSide + block + barH + vgap * 2 - avail;
+    if (deficit > 0) {
+      const gapShed = Math.min(deficit, (vgap - VGAP_MIN) * 2);
+      vgap -= gapShed / 2;
+      deficit -= gapShed;
+      const blockShed = clamp(deficit, 0, block - BADGE_MIN);
+      block -= blockShed;
+      deficit -= blockShed;
+      barH -= clamp(deficit, 0, barH - BAR_MIN);
+    }
+
+    let chrome = block + barH + vgap * 2;
+    // Backstop for a stage too short to host even the chrome floors: the board
+    // never gives up more than half the vertical budget. Railed normally wins
+    // a stage this short anyway.
     if (chrome > avail * 0.5) {
       const k = (avail * 0.5) / chrome;
       vgap *= k;
-      badgeH *= k;
+      block *= k;
       barH *= k;
+      chrome *= k;
     }
 
-    const bandY = pad + badgeH + vgap;
-    const bandH = avail - badgeH - barH - vgap * 2;
-    const side = Math.max(0, Math.min(w - pad * 2, bandH));
+    // Provisional board: the surplus distribution below is costed against it,
+    // and whatever the chrome cannot put to work comes back to it at the end.
+    const side0 = clamp(avail - chrome, 0, maxSide);
     // Chrome follows the board once the board is the wider of the two, so the
     // stage reads as one column. Below that it holds 260px: four stat cards
     // narrower than ~60px cannot carry a readable "12.34x".
-    const rowW = Math.min(w - pad * 2, Math.max(side, 260));
-    const rowX = (w - rowW) / 2;
+    const row0 = Math.min(maxSide, Math.max(side0, 260));
+    let spare = Math.max(0, avail - side0 - chrome);
 
-    const badgeGap = clamp(rowW * 0.022, 4, 12);
-    const bw = (rowW - badgeGap * (BADGE_COUNT - 1)) / BADGE_COUNT;
+    // Spend the surplus against each part's own ceiling, in the order that
+    // reads best: breathing room first, then the payout readout, then the stat
+    // block, which is last because it is the only consumer with no ceiling
+    // short of the whole column. Past its ceiling a part is only adding air,
+    // so whatever it declines is still on the table for the next one.
+    const gapAdd = clamp(clamp(h * 0.03, 0, 24) - vgap, 0, spare / 2);
+    vgap += gapAdd;
+    spare -= gapAdd * 2;
+
+    const payW0 = (row0 - clamp(row0 * 0.025, 5, 12)) * 0.58;
+    const barCeil = Math.min(clamp(row0 * 0.3, 0, 104), typeCeil(payW0, 16, PAY_EM, 0.36));
+    const barAdd = clamp(barCeil - barH, 0, spare);
+    barH += barAdd;
+    spare -= barAdd;
+
+    // One row of four or two rows of two. Both candidates are capped at the
+    // height their own width can still use, so the taller survivor is by
+    // construction the one that renders the larger value: on a tall phone the
+    // 165px two-up card carries "12.34x" near 25px where the 79px four-across
+    // card is stuck at 18px, and on a short or wide stage four-across wins.
+    const badgeGap = clamp(row0 * 0.022, 4, 12);
+    const budget = block + spare;
+    const h4 = Math.min(budget, typeCeil((row0 - badgeGap * (BADGE_COUNT - 1)) / BADGE_COUNT, 14, VAL_EM, 0.4));
+    const h2 = Math.min((budget - badgeGap) / 2, typeCeil((row0 - badgeGap) / 2, 14, VAL_EM, 0.4));
+    const twoUp = h2 > h4;
+    const cols = twoUp ? 2 : BADGE_COUNT;
+    const badgeH = Math.max(0, twoUp ? h2 : h4);
+    block = twoUp ? badgeH * 2 + badgeGap : badgeH;
+
+    // The board is the residual claimant: a stat block that could not use its
+    // share hands the height back to the tiles rather than to dead margin.
+    const side = clamp(avail - block - barH - vgap * 2, 0, maxSide);
+    const rowW = Math.min(maxSide, Math.max(side, 260));
+    const bw = (rowW - badgeGap * (cols - 1)) / cols;
+    spare = Math.max(0, avail - side - block - barH - vgap * 2);
+
+    // Only a width-bound board can still be holding surplus here; it becomes
+    // symmetric outer margin so the column stays centred.
+    const top = pad + spare / 2;
+    const rowX = (w - rowW) / 2;
     const badges = [];
     for (let i = 0; i < BADGE_COUNT; i++) {
-      badges.push({ x: rowX + i * (bw + badgeGap), y: pad, w: bw, h: badgeH });
+      badges.push({
+        x: rowX + (i % cols) * (bw + badgeGap),
+        y: top + ((i / cols) | 0) * (badgeH + badgeGap),
+        w: bw,
+        h: badgeH,
+      });
     }
 
     const colGap = clamp(rowW * 0.025, 5, 12);
     const btnW = (rowW - colGap) * 0.42;
-    const barY = pad + avail - barH;
+    const barY = top + block + vgap + side + vgap;
 
     return this.finishLayout({
       pad,
       side,
       gx: (w - side) / 2,
-      gy: bandY + (bandH - side) / 2,
+      gy: top + block + vgap,
       badges,
       btn: { x: rowX, y: barY, w: btnW, h: barH },
       pay: { x: rowX + btnW + colGap, y: barY, w: rowW - btnW - colGap, h: barH },
@@ -840,7 +937,10 @@ export class MinesGame {
       badges.push({ x: badgeX, y: badgeTop + i * (badgeH + vgap), w: cardW, h: badgeH });
     }
 
-    const btnH = clamp(side * 0.13, 40, 58);
+    // The rail column has slack to spare at every size it wins, so the chip
+    // takes a full-finger floor; the ceiling is unchanged, so a desktop rail
+    // renders exactly as before.
+    const btnH = clamp(side * 0.13, MIN_TAP, 58);
     const payH = clamp(side * 0.17, 52, 78);
     const colX = w - railW + (railW - cardW) / 2;
     const colY = pad + (side - (btnH + payH + vgap)) / 2;
@@ -862,6 +962,9 @@ export class MinesGame {
     // stage read as the same board at two scales.
     g.gap = clamp(g.side * 0.026, 3, 14);
     g.cell = (g.side - g.gap * (GRID_SIDE - 1)) / GRID_SIDE;
+    // Hit bands split the board into five equal columns, so every tile owns a
+    // band wider than its own face and no gutter tap is ever dropped.
+    g.band = g.side / GRID_SIDE;
     g.cx = g.gx + g.side / 2;
     g.cy = g.gy + g.side / 2;
     return g;
@@ -882,15 +985,15 @@ export class MinesGame {
   /**
    * Tile index under a stage-space point, or -1. Gutters count as part of the
    * nearest tile: a 5px gap is ~20% of the board area on a phone stage, and a
-   * tap that lands in one must not be silently dropped.
+   * tap that lands in one must not be silently dropped. Bands are uniform
+   * `side / 5`, so the outermost row and column tap as wide as the inner ones.
    */
   tileAt(x, y) {
     const g = this.geom;
-    if (!g) return -1;
+    if (!g || !(g.band > 0)) return -1;
     if (x < g.gx || y < g.gy || x > g.gx + g.side || y > g.gy + g.side) return -1;
-    const step = g.cell + g.gap;
-    const col = clamp(Math.floor((x - g.gx) / step), 0, GRID_SIDE - 1);
-    const row = clamp(Math.floor((y - g.gy) / step), 0, GRID_SIDE - 1);
+    const col = clamp(Math.floor((x - g.gx) / g.band), 0, GRID_SIDE - 1);
+    const row = clamp(Math.floor((y - g.gy) / g.band), 0, GRID_SIDE - 1);
     return row * GRID_SIDE + col;
   }
 
@@ -1136,8 +1239,11 @@ export class MinesGame {
   drawBadge(r, label, value, tone) {
     const ctx = this.ctx;
     const inner = r.w - Math.min(14, r.w * 0.14);
-    const capSize = this.fitSize(label.toUpperCase(), inner, clamp(r.h * 0.2, 6.5, 11), 700, 'Inter, sans-serif');
-    const valSize = this.fitSize(value, inner, clamp(r.h * 0.4, 11, 22), 900, "Inter, 'Roboto Mono', monospace");
+    // Both caps are box-relative: a tall stage grows the card, and the card
+    // grows the type up to the same TYPE_MAX the layout costed it against.
+    // fitSize still holds the value inside the card width.
+    const capSize = this.fitSize(label.toUpperCase(), inner, clamp(r.h * 0.2, 6.5, 14), 700, 'Inter, sans-serif');
+    const valSize = this.fitSize(value, inner, clamp(r.h * 0.4, 11, TYPE_MAX), 900, "Inter, 'Roboto Mono', monospace");
 
     T.panel(ctx, r.x, r.y, r.w, r.h, { radius: clamp(r.h * 0.24, 7, 14), accent: tone });
     T.caption(ctx, label, r.x + r.w / 2, r.y + r.h * 0.31, { size: capSize });
@@ -1198,11 +1304,11 @@ export class MinesGame {
 
     if (this.state === 'idle') {
       const g = this.geom;
-      const pw = Math.min(g.side * 0.86, 260);
-      const ph = clamp(g.cell * 0.9, 26, 46);
+      const pw = Math.min(g.side * 0.86, 340);
+      const ph = clamp(g.cell * 0.9, 26, 54);
       const px = g.cx - pw / 2;
       const py = g.cy - ph / 2;
-      const size = this.fitSize('AWAITING ROUND', pw - 18, clamp(ph * 0.3, 7, 12), 700, 'Inter, sans-serif');
+      const size = this.fitSize('AWAITING ROUND', pw - 18, clamp(ph * 0.3, 7, 16), 700, 'Inter, sans-serif');
       ctx.save();
       ctx.globalAlpha = 0.92;
       T.panel(ctx, px, py, pw, ph, { radius: clamp(ph * 0.3, 8, 14) });
@@ -1384,7 +1490,7 @@ export class MinesGame {
     // The long label needs ~130px to breathe; below that the chip keeps its full
     // tap area and drops to the short form rather than shrinking the type.
     const label = b.w >= 132 ? 'RANDOM PICK' : 'PICK';
-    const labelSize = this.fitSize(label, b.w - 14, clamp(b.h * 0.34, 9, 15), 800, 'Inter, sans-serif');
+    const labelSize = this.fitSize(label, b.w - 14, clamp(b.h * 0.34, 9, 20), 800, 'Inter, sans-serif');
     const radius = clamp(b.h * 0.26, 8, 14);
 
     if (live) {
@@ -1404,8 +1510,8 @@ export class MinesGame {
     const banked = live && this.revealedGems > 0;
     const tone = banked ? T.PALETTE.mint : T.PALETTE.textDim;
     const amount = `$${(banked ? this.payout : 0).toFixed(2)}`;
-    const capSize = this.fitSize('POTENTIAL PAYOUT', p.w - 12, clamp(p.h * 0.2, 6.5, 11), 700, 'Inter, sans-serif');
-    const amtSize = this.fitSize(amount, p.w - 16, clamp(p.h * 0.36, 11, 20), 800, MONO);
+    const capSize = this.fitSize('POTENTIAL PAYOUT', p.w - 12, clamp(p.h * 0.2, 6.5, 14), 700, 'Inter, sans-serif');
+    const amtSize = this.fitSize(amount, p.w - 16, clamp(p.h * 0.36, 11, TYPE_MAX), 800, MONO);
 
     T.panel(ctx, p.x, p.y, p.w, p.h, { radius: clamp(p.h * 0.24, 8, 14), accent: banked ? T.PALETTE.mint : null });
     T.caption(ctx, 'Potential payout', p.x + p.w / 2, p.y + p.h * 0.3, { size: capSize });

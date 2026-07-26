@@ -123,20 +123,55 @@ export async function calculateKenoOutcome(
 
 /**
  * Candidate grid shapes as [cols, rows]. Exact factor pairs of 40 only — a ragged
- * final row reads as a bug on a number board. `computeGeometry` keeps whichever
- * pair yields the largest tile for the live stage, so a square phone lands on 8x5
- * and an 800x200 landscape strip lands on 20x2 instead of shrinking to nothing.
+ * final row reads as a bug on a number board. `fitGrid` keeps whichever pair yields
+ * the largest tap band for the live stage, so a 0.57 portrait phone lands on 5x8,
+ * a square-ish tablet on 8x5 and an 812x205 landscape strip on 20x2.
  */
 const LAYOUTS = [[4, 10], [5, 8], [8, 5], [10, 4], [20, 2]];
 
-/** Gap as a fraction of tile size, so the board breathes identically at every scale. */
-const GAP_RATIO = 0.14;
+/**
+ * Gap as a fraction of the pitch, so the board breathes identically at every scale.
+ * Tight on purpose: the pitch carries a trailing gutter after the last row, so a
+ * looser ratio here would hand a 1170x630 desktop a smaller tile than it had before.
+ */
+const GAP_RATIO = 0.11;
+const GAP_MAX = 11;
 
-/** Below this many CSS px a tile stops being a comfortable thumb target. */
-const MIN_TAP = 28;
+/**
+ * Thumb target we spend chrome to reach. The grid's tap band is the full pitch
+ * (tile + gap), so this is measured against the pitch, not the painted tile.
+ * 40 tiles cannot reach it on both axes below ~390px of stage height —
+ * 8 rows x 48 = 384 — so `computeGeometry` treats it as a goal, not a floor.
+ */
+const TAP_GOAL = 48;
+
+/**
+ * Tiles are rectangles, not squares: a 5x8 grid in a 0.57 box wants a wide tile and
+ * forcing it square throws away a third of the width. These cap how far from square
+ * a tile may drift before the leftover pitch turns into gap instead.
+ */
+const TILE_AR_MAX = 1.75;
+const TILE_AR_MIN = 0.62;
 
 /** Narrowest payout chip that still holds a "3.80x" label; below it, tiers are trimmed. */
 const MIN_CHIP = 30;
+
+/** Longest payout column the table ever has (10 picks -> hits 0..10). */
+const PAY_TIERS = 11;
+
+/**
+ * Chrome budgets, richest first, as [heightFrac, min, max]. `computeGeometry` keeps
+ * the richest set whose grid still clears `TAP_GOAL`, so a tall phone spends its new
+ * height on HUD and a short one spends it on tiles. The last entry folds the payout
+ * table into a single header line: on a 296x354 stage 40 tappable numbers outrank it.
+ */
+const CHROME = [
+  { header: [0.100, 36, 68], payWrapped: [0.165, 86, 146], payFlat: [0.14, 42, 86], pad: [0.034, 10, 22] },
+  { header: [0.095, 32, 62], payWrapped: null, payFlat: [0.13, 38, 76], pad: [0.032, 9, 20] },
+  { header: [0.090, 30, 54], payWrapped: null, payFlat: [0.11, 30, 58], pad: [0.026, 8, 16] },
+  { header: [0.088, 26, 44], payWrapped: null, payFlat: [0.095, 24, 42], pad: [0.020, 6, 12] },
+  { header: [0.095, 30, 44], payWrapped: null, payFlat: null, pad: [0.014, 4, 9] }
+];
 
 /** Tile pop duration after a number is drawn, seconds. */
 const POP_SEC = 0.32;
@@ -160,27 +195,35 @@ function multLabel(m) {
 }
 
 /**
- * Largest square tile that fits `areaW` x `areaH` across every candidate grid shape.
- * @returns {{cols:number, rows:number, gap:number, cell:number}}
+ * Best grid shape for an `areaW` x `areaH` board area.
+ *
+ * The board always consumes the whole area: pitch is `areaW/cols` by `areaH/rows`, so
+ * nothing is left as dead margin and the tap band is the pitch itself. The painted
+ * tile sits centred inside its pitch cell, shrunk only by the gap and the aspect cap.
+ *
+ * @returns {{cols:number, rows:number, gap:number, pitchW:number, pitchH:number,
+ *            cellW:number, cellH:number, tap:number}}
  */
 function fitGrid(areaW, areaH) {
-  let pick = LAYOUTS[0];
-  let guess = 0;
+  let best = null;
   for (const [cols, rows] of LAYOUTS) {
-    // The gap is a fraction of the tile, so the tile solves directly instead of iterating.
-    const c = Math.min(
-      areaW / (cols + GAP_RATIO * (cols - 1)),
-      areaH / (rows + GAP_RATIO * (rows - 1))
-    );
-    if (c > guess) { guess = c; pick = [cols, rows]; }
+    const pitchW = areaW / cols;
+    const pitchH = areaH / rows;
+    const tap = Math.min(pitchW, pitchH);
+    const gap = Math.round(clamp(tap * GAP_RATIO, 2, GAP_MAX));
+    let cellW = Math.max(6, pitchW - gap);
+    let cellH = Math.max(6, pitchH - gap);
+    // Past the aspect caps the surplus becomes gap rather than a smeared tile.
+    if (cellW > cellH * TILE_AR_MAX) cellW = cellH * TILE_AR_MAX;
+    else if (cellW < cellH * TILE_AR_MIN) cellH = cellW / TILE_AR_MIN;
+    const area = cellW * cellH;
+    // Tap band first, painted area as the tie-break: two shapes within a quarter of a
+    // pixel are equally thumb-friendly, so take the one that shows more tile.
+    if (!best || tap > best.tap + 0.25 || (tap > best.tap - 0.25 && area > best.area)) {
+      best = { cols, rows, gap, pitchW, pitchH, cellW, cellH, tap, area };
+    }
   }
-  const [cols, rows] = pick;
-  const gap = Math.max(2, Math.round(guess * GAP_RATIO));
-  const cell = Math.max(6, Math.min(
-    (areaW - gap * (cols - 1)) / cols,
-    (areaH - gap * (rows - 1)) / rows
-  ));
-  return { cols, rows, gap, cell };
+  return best;
 }
 
 export class KenoGame {
@@ -610,13 +653,15 @@ export class KenoGame {
     this.popTile(tileNum, 1);
     if (this.reduced || !this.geom) return;
 
+    const g = this.geom;
     const r = this.tileRect(tileNum);
-    const cx = r.x + r.s / 2;
-    const cy = r.y + r.s / 2;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
     // Burst scales with the tile — a desktop-sized spray blankets a phone board.
-    const k = clamp(r.s / 70, 0.45, 1.25);
+    const k = g.burstK;
+    const reach = Math.min(r.w, r.h);
 
-    this.rings.push({ x: cx, y: cy, r: r.s * 0.35, max: r.s * 1.5, life: 1, color: T.PALETTE.gold });
+    this.rings.push({ x: cx, y: cy, r: reach * 0.35, max: reach * 1.5, life: 1, color: T.PALETTE.gold });
 
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.3;
@@ -731,51 +776,93 @@ export class KenoGame {
   computeGeometry() {
     const w = this.width;
     const h = this.height;
-    // One scalar drives every font, pad and radius: the short edge against the desktop
-    // reference stage. The 0.5 floor stops an 800x200 landscape phone collapsing
-    // captions into mush; the 1.25 ceiling stops a 760px desktop stage ballooning them.
-    const s = clamp(Math.min(w, h) / 420, 0.5, 1.25);
-    const pad = Math.round(clamp(Math.min(w, h) * 0.035, 6, 24));
-    const areaW = Math.max(40, w - pad * 2);
+    const short = Math.min(w, h);
+    // Type keys off the whole box, not the short edge: a 366x630 stage is a big stage
+    // and must not render 12px labels just because it is narrow. The long edge carries
+    // a smaller weight so an 812x205 strip still gets readable — not oversized — chrome.
+    const s = clamp((short * 0.55 + Math.max(w, h) * 0.30) / 420, 0.58, 1.3);
+    const padX = Math.round(clamp(short * 0.034, 7, 22));
+    const areaW = Math.max(40, w - padX * 2);
+    const chipGap = Math.round(clamp(8 * s, 3, 10));
+    // A phone cannot hold eleven 30px chips in one row; wrapping to two shows the whole
+    // table instead of a trimmed window, which is exactly what the extra height is for.
+    const perRow = Math.max(2, Math.floor((areaW + chipGap) / (MIN_CHIP + chipGap)));
+    const wrapPayout = perRow < PAY_TIERS;
 
-    // Chrome yields height before the grid does: take full bands, and only if that
-    // leaves untappable tiles fall back to the thinned ones.
-    let best = null;
-    for (const dense of [false, true]) {
-      // Also capped as a fraction of h, so a short stage can never starve the grid.
-      const headerH = Math.round(Math.min(h * 0.22, dense ? clamp(h * 0.10, 22, 44) : clamp(h * 0.13, 26, 62)));
-      const payoutH = Math.round(Math.min(h * 0.26, dense ? clamp(h * 0.11, 26, 46) : clamp(h * 0.17, 34, 84)));
-      const areaH = Math.max(30, h - pad * 2 - headerH - payoutH);
+    // Score every chrome budget, then keep the richest one whose grid still reaches the
+    // thumb target. When nothing reaches it the board is area-starved, so fall back to
+    // whichever budget is within 8% of the best tap band — that keeps the payout table
+    // on an 812x205 strip, where the limit is width and shedding chrome buys nothing.
+    const cands = [];
+    let ceiling = 0;
+    for (const profile of CHROME) {
+      const padY = Math.round(clamp(short * profile.pad[0], profile.pad[1], profile.pad[2]));
+      const hb = profile.header;
+      const headerH = Math.round(Math.min(h * 0.20, clamp(h * hb[0], hb[1], hb[2])));
+      const pb = wrapPayout && profile.payWrapped ? profile.payWrapped : profile.payFlat;
+      const payRows = pb ? (pb === profile.payWrapped ? 2 : 1) : 0;
+      const payoutH = pb
+        ? Math.round(Math.min(h * (payRows === 2 ? 0.32 : 0.26), clamp(h * pb[0], pb[1], pb[2])))
+        : 0;
+      const areaH = Math.max(30, h - padY * 2 - headerH - payoutH);
       const fit = fitGrid(areaW, areaH);
-      if (!best || fit.cell > best.cell) best = { ...fit, dense, headerH, payoutH, areaH };
-      if (fit.cell >= MIN_TAP) break;
+      if (fit.tap > ceiling) ceiling = fit.tap;
+      cands.push({ fit, padY, headerH, payoutH, payRows });
     }
 
-    const { cols, rows, gap, cell, headerH, payoutH, areaH } = best;
-    const gw = cell * cols + gap * (cols - 1);
-    const gh = cell * rows + gap * (rows - 1);
-    const top = pad + headerH;
+    const target = Math.min(TAP_GOAL, ceiling * 0.92);
+    let best = cands[cands.length - 1];
+    for (const c of cands) {
+      if (c.fit.tap >= target) { best = c; break; }
+    }
+
+    const { fit, padY, headerH, payoutH, payRows } = best;
+    const { cols, rows, pitchW, pitchH, cellW, cellH } = fit;
+    const gw = pitchW * cols;
+    const gh = pitchH * rows;
+
+    // Everything the per-frame painters need, resolved once. Tile numerals key off the
+    // tile itself, so a 62x49 tile carries a 27px numeral rather than a 20px one.
+    const tileMin = Math.min(cellW, cellH);
+    const numSize = Math.round(clamp(Math.min(cellH * 0.56, cellW * 0.44), 9, 40));
 
     return {
       s,
-      pad,
+      padX,
+      padY,
       cols,
       rows,
-      gap,
-      cell,
+      pitchW,
+      pitchH,
+      cellW,
+      cellH,
       headerH,
       payoutH,
-      gx: (w - gw) / 2,
-      gy: top + (areaH - gh) / 2,
+      payRows,
+      chipGap,
+      perRow,
+      gx: padX,
+      gy: padY + headerH,
       gw,
       gh,
-      payoutY: h - pad - payoutH
+      // Painted tile is centred in its pitch cell; the whole cell stays tappable.
+      insetX: (pitchW - cellW) / 2,
+      insetY: (pitchH - cellH) / 2,
+      payoutY: h - padY - payoutH,
+      tileRadius: clamp(tileMin * 0.22, 4, 20),
+      numFont: `700 ${numSize}px ${MONO}`,
+      glowK: clamp(tileMin / 70, 0.5, 1.2),
+      burstK: clamp(tileMin / 70, 0.45, 1.25),
+      ringInset: Math.max(2, tileMin * 0.11),
+      ringWidth: clamp(tileMin * 0.06, 1, 2.4),
+      ringRadius: Math.max(3, tileMin * 0.18),
+      fxWidth: clamp(tileMin * 0.05, 1, 2.5)
     };
   }
 
   /**
-   * Top-left rect + side length for a tile number (1..40).
-   * Reflow moves a number on screen; it never renumbers it.
+   * Painted rect for a tile number (1..40). Reflow moves a number on screen; the
+   * index mapping — column-major within a row, 1-based — never changes.
    */
   tileRect(num) {
     const g = this.geom;
@@ -783,24 +870,24 @@ export class KenoGame {
     const col = i % g.cols;
     const row = (i / g.cols) | 0;
     return {
-      x: g.gx + col * (g.cell + g.gap),
-      y: g.gy + row * (g.cell + g.gap),
-      s: g.cell
+      x: g.gx + col * g.pitchW + g.insetX,
+      y: g.gy + row * g.pitchH + g.insetY,
+      w: g.cellW,
+      h: g.cellH
     };
   }
 
-  /** Tile number under a stage-space point, or 0. */
+  /**
+   * Tile number under a stage-space point, or 0. The hit area is the full pitch cell,
+   * not the painted tile: at phone tile sizes an exact-edge test rejects too many
+   * honest taps, and the pitch is what the tap-target budget is measured against.
+   */
   tileAt(x, y) {
     const g = this.geom;
     if (!g) return 0;
-    const step = g.cell + g.gap;
-    const col = Math.floor((x - g.gx) / step);
-    const row = Math.floor((y - g.gy) / step);
+    const col = Math.floor((x - g.gx) / g.pitchW);
+    const row = Math.floor((y - g.gy) / g.pitchH);
     if (col < 0 || col >= g.cols || row < 0 || row >= g.rows) return 0;
-    // Half the gap counts as tile: at phone tile sizes an exact-edge test rejects
-    // too many honest taps.
-    const slop = g.gap / 2;
-    if (x > g.gx + col * step + g.cell + slop || y > g.gy + row * step + g.cell + slop) return 0;
     return row * g.cols + col + 1;
   }
 
@@ -917,7 +1004,7 @@ export class KenoGame {
     }
 
     // Gravity tracks the burst scale set in triggerHitFX, or the arc outruns the spray.
-    const grav = 220 * (this.geom ? clamp(this.geom.cell / 70, 0.45, 1.25) : 1);
+    const grav = 220 * (this.geom ? this.geom.burstK : 1);
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.x += p.vx * dt;
@@ -968,28 +1055,67 @@ export class KenoGame {
     if (!this.reduced) this.drawBanner(now);
   }
 
+  /**
+   * Second header line. During a draw it is the reveal counter — information that had
+   * nowhere to live before. When the payout band has been folded away to buy tap area
+   * it carries the tier summary instead, so nothing is actually lost on a small phone.
+   */
+  headerSubtitle() {
+    if (this.state === 'playing') return `${this.currentlyRevealed.length} / ${this.drawCount} drawn`;
+    if (this.geom.payRows > 0) return 'Casino Original';
+
+    const picks = Math.max(1, this.pickedTiles.size);
+    const table = (KENO_PAYOUTS[this.risk] || KENO_PAYOUTS.classic)[picks] || [];
+    if (this.state !== 'idle') {
+      const hits = this.matchedTiles.length;
+      return `${hits} hit${hits === 1 ? '' : 's'} \u00b7 ${multLabel(table[hits] || 0)}x`;
+    }
+    let maxMult = 0;
+    for (const m of table) if (m > maxMult) maxMult = m;
+    return `${this.risk} \u00b7 ${picks} pick${picks === 1 ? '' : 's'} \u00b7 top ${multLabel(maxMult)}x`;
+  }
+
   drawHeader() {
     const ctx = this.ctx;
     const g = this.geom;
     const w = this.width;
     const s = g.s;
     const picks = this.pickedTiles.size;
-    const top = g.pad;
+    const top = g.padY;
     const hh = g.headerH;
 
     // The pick counter is the one header element the game actually needs; title,
     // subtitle and last-round badge give way as the stage narrows.
     const bw = Math.round(clamp(Math.min(w * 0.26, hh * 3.6), 70, 168));
-    const bx = w - g.pad - bw;
+    const bx = w - g.padX - bw;
     const stacked = hh >= 34;
     const radius = clamp(12 * s, 7, 14);
     const titleSize = clamp(26 * s, 13, 32);
+    // Two lines whenever the band holds them, and always when the payout band was
+    // folded away — that second line is then the only place the tier summary lives.
+    const twoLine = hh >= 42 ? w >= 340 : g.payRows === 0 && hh >= 30;
+    const subSize = twoLine ? clamp((hh >= 42 ? 9.5 : 8.5) * s, 7, 11) : 0;
+    const sub = twoLine ? this.headerSubtitle().toUpperCase() : '';
 
-    if (hh >= 42 && w >= 340) {
-      T.heroText(ctx, 'KENO', g.pad, top + hh * 0.38, { size: titleSize, align: 'left', blur: 20 * s });
-      T.caption(ctx, 'Casino Original', g.pad + 2, top + hh * 0.80, { size: clamp(9.5 * s, 7.5, 11), align: 'left' });
+    // Both lines are measured, never assumed: the badge below only appears if it
+    // genuinely clears whichever of them runs longest at this scale.
+    ctx.save();
+    ctx.font = `900 ${titleSize}px Inter, 'Roboto Mono', monospace`;
+    let titleRight = g.padX + ctx.measureText('KENO').width;
+    let subRight = 0;
+    if (twoLine) {
+      ctx.font = `700 ${subSize}px Inter, sans-serif`;
+      subRight = g.padX + 2 + ctx.measureText(sub).width;
+    }
+    ctx.restore();
+
+    if (twoLine && subRight < bx - 8 * s) {
+      const split = hh >= 42 ? 0.38 : 0.34;
+      T.heroText(ctx, 'KENO', g.padX, top + hh * split, { size: titleSize, align: 'left', blur: 20 * s });
+      T.caption(ctx, sub, g.padX + 2, top + hh * 0.80, { size: subSize, align: 'left', spacing: false });
+      titleRight = Math.max(titleRight, subRight);
     } else {
-      T.heroText(ctx, 'KENO', g.pad, top + hh / 2, { size: titleSize, align: 'left', blur: 16 * s });
+      T.heroText(ctx, 'KENO', g.padX, top + hh / 2, { size: titleSize, align: 'left', blur: 16 * s });
     }
 
     const pickColor = picks > 0 ? T.PALETTE.mint : T.PALETTE.textDim;
@@ -1010,13 +1136,11 @@ export class KenoGame {
       });
     }
 
-    // Last-round badge only when it clears the title — width is measured, not assumed
-    // at a breakpoint, because the title itself scales.
     const res = this.lastResult;
     if (!res) return;
     const lw = Math.round(clamp(Math.min(w * 0.2, hh * 4), 92, 180));
     const lx = bx - Math.round(10 * s) - lw;
-    if (lx < g.pad + titleSize * 3.2) return;
+    if (lx < titleRight + 10 * s) return;
 
     const tone = res.won ? (res.multiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint) : T.PALETTE.red;
     const label = res.won ? `${multLabel(res.multiplier)}x` : 'NO WIN';
@@ -1042,14 +1166,15 @@ export class KenoGame {
     const ctx = this.ctx;
     const g = this.geom;
     const pickable = this.state !== 'playing';
-    const cell = g.cell;
-    const radius = clamp(cell * 0.22, 4, 20);
-    // The numbers are the whole game — size them off the live tile, never a constant.
-    const numFont = `700 ${Math.round(clamp(cell * 0.4, 8, 34))}px ${MONO}`;
-    const glowK = clamp(cell / 70, 0.5, 1.2);
-    const ringInset = Math.max(2, cell * 0.11);
-    const ringWidth = clamp(cell * 0.06, 1, 2.4);
-    const ringRadius = Math.max(3, cell * 0.18);
+    // Every scalar below is resolved in computeGeometry — the tile loop only reads.
+    const cw = g.cellW;
+    const ch = g.cellH;
+    const radius = g.tileRadius;
+    const numFont = g.numFont;
+    const glowK = g.glowK;
+    const ringInset = g.ringInset;
+    const ringWidth = g.ringWidth;
+    const ringRadius = g.ringRadius;
 
     for (let n = 1; n <= this.totalTiles; n++) {
       const picked = this.pickedTiles.has(n);
@@ -1085,21 +1210,21 @@ export class KenoGame {
       ctx.save();
       if (pop > 0) {
         const scale = 1 + 0.3 * pop * pop;
-        const cx = r.x + cell / 2;
-        const cy = r.y + cell / 2;
+        const cx = r.x + cw / 2;
+        const cy = r.y + ch / 2;
         ctx.translate(cx, cy);
         ctx.scale(scale, scale);
         ctx.translate(-cx, -cy);
       }
 
-      T.tile(ctx, r.x, r.y, cell, cell, { state, accent, radius });
+      T.tile(ctx, r.x, r.y, cw, ch, { state, accent, radius });
 
       // Idle life: picked tiles breathe until the draw starts.
       if (state === 'selected' && !this.reduced) {
         const a = 0.14 + 0.14 * Math.sin(now * 0.0032 + n * 0.7);
         ctx.strokeStyle = T.alpha(T.PALETTE.mint, a);
         ctx.lineWidth = ringWidth;
-        T.roundRect(ctx, r.x + ringInset, r.y + ringInset, cell - ringInset * 2, cell - ringInset * 2, ringRadius);
+        T.roundRect(ctx, r.x + ringInset, r.y + ringInset, cw - ringInset * 2, ch - ringInset * 2, ringRadius);
         ctx.stroke();
       }
 
@@ -1111,7 +1236,7 @@ export class KenoGame {
         ctx.shadowBlur = numGlow;
       }
       ctx.fillStyle = numColor;
-      ctx.fillText(String(n), r.x + cell / 2, r.y + cell / 2 + cell * 0.02);
+      ctx.fillText(String(n), r.x + cw / 2, r.y + ch / 2 + ch * 0.02);
       ctx.restore();
     }
   }
@@ -1120,7 +1245,7 @@ export class KenoGame {
     if (this.rings.length === 0) return;
     const ctx = this.ctx;
     ctx.save();
-    ctx.lineWidth = this.geom ? clamp(this.geom.cell * 0.05, 1, 2.5) : 2.5;
+    ctx.lineWidth = this.geom ? this.geom.fxWidth : 2.5;
     for (const r of this.rings) {
       ctx.strokeStyle = T.alpha(r.color, Math.max(0, r.life) * 0.7);
       ctx.beginPath();
@@ -1145,8 +1270,12 @@ export class KenoGame {
   }
 
   drawPayouts() {
-    const ctx = this.ctx;
     const g = this.geom;
+    // Folded into the header: on a 296x354 stage the board needs that height more
+    // than the chips do, and `headerSubtitle` still carries the live tier.
+    if (g.payRows === 0) return;
+
+    const ctx = this.ctx;
     const w = this.width;
     const s = g.s;
 
@@ -1160,13 +1289,14 @@ export class KenoGame {
 
     const py = g.payoutY;
     const bandH = g.payoutH;
-    const areaW = w - g.pad * 2;
-    const gap = Math.round(clamp(8 * s, 3, 10));
+    const areaW = w - g.padX * 2;
+    const gap = g.chipGap;
 
-    // Trim tiers before shrinking chips: an illegible 20px chip is worse than a window
-    // onto the paying end of the table. The window always contains the live tier.
+    // Wrap before trimming: a tall stage buys a second chip row, which shows the whole
+    // eleven-tier table on a phone that used to see a nine-tier window. Only when both
+    // rows are full does the window logic kick in, and it always holds the live tier.
     const n = table.length;
-    const maxChips = Math.max(2, Math.floor((areaW + gap) / (MIN_CHIP + gap)));
+    const maxChips = g.perRow * g.payRows;
     let start = 0;
     let count = n;
     if (n > maxChips) {
@@ -1174,12 +1304,23 @@ export class KenoGame {
       start = n - maxChips;
       if (currentHits >= 0 && currentHits < start) start = currentHits;
     }
+    const rows = Math.min(g.payRows, Math.max(1, Math.ceil(count / g.perRow)));
+    const cols = Math.ceil(count / rows);
 
     // Bands stack top-down; the heading is the first thing to go when height is scarce.
-    const headingH = bandH >= 50 ? Math.round(clamp(bandH * 0.26, 12, 20)) : 0;
-    const hitsH = bandH >= 26 ? Math.round(clamp(bandH * 0.24, 10, 18)) : 0;
-    const chipTop = py + headingH + hitsH;
-    const chipH = clamp(py + bandH - chipTop, 12, 46);
+    const headingH = bandH >= 46 ? Math.round(clamp(bandH * (rows > 1 ? 0.14 : 0.26), 12, 20)) : 0;
+    const hitsH = bandH >= 26 ? Math.round(clamp(bandH * (rows > 1 ? 0.10 : 0.24), 10, 18)) : 0;
+    const rowGap = Math.round(clamp(6 * s, 3, 10));
+    const chipCap = Math.round(clamp(46 * s, 34, 64));
+    const chipH = clamp(
+      (bandH - headingH - rows * hitsH - rowGap * (rows - 1)) / rows,
+      12,
+      chipCap
+    );
+    // Heading pins to the band top; the chip block centres in whatever is left, so a
+    // two-tier table in a tall band reads as deliberate rather than top-heavy.
+    const blockH = rows * (hitsH + chipH) + rowGap * (rows - 1);
+    const blockTop = py + headingH + Math.max(0, (bandH - headingH - blockH) / 2);
 
     if (headingH > 0) {
       T.caption(
@@ -1191,9 +1332,7 @@ export class KenoGame {
       );
     }
 
-    const chipW = Math.min(clamp(96 * s, 44, 96), (areaW - gap * (count - 1)) / count);
-    const rowW = chipW * count + gap * (count - 1);
-    const x0 = (w - rowW) / 2;
+    const chipW = Math.min(clamp(96 * s, 44, 96), (areaW - gap * (cols - 1)) / cols);
     const chipR = clamp(chipH * 0.25, 5, 10);
 
     // The longest visible label picks the font, so nothing ever clips out of a chip.
@@ -1202,22 +1341,29 @@ export class KenoGame {
     const labelSize = Math.floor(clamp(
       Math.min(chipH * 0.46, (chipW - Math.max(4, chipW * 0.14)) / (maxLen * 0.62)),
       7,
-      16
+      20
     ));
     const labelFont = `800 ${labelSize}px ${MONO}`;
-    const hitsSize = clamp(bandH * 0.22, 8, 10);
+    const hitsSize = clamp(hitsH * 0.74, 7.5, 11);
     const hitsWords = chipW >= 46 && hitsSize >= 8.5;
-    const hitsY = py + headingH + hitsH / 2;
 
     for (let i = 0; i < count; i++) {
       const hits = start + i;
       const mult = table[hits];
-      const cx = x0 + i * (chipW + gap);
+      const row = (i / cols) | 0;
+      const col = i % cols;
+      // Each row centres on its own width, so a short final row sits under the middle
+      // of the one above instead of hugging the left edge.
+      const inRow = Math.min(cols, count - row * cols);
+      const x0 = (w - (chipW * inRow + gap * (inRow - 1))) / 2;
+      const cx = x0 + col * (chipW + gap);
+      const rowTop = blockTop + row * (hitsH + chipH + rowGap);
+      const chipTop = rowTop + hitsH;
       const live = hits === currentHits;
       const win = mult > 0;
 
       if (hitsH > 0) {
-        T.caption(ctx, hitsWords ? `${hits} hit${hits === 1 ? '' : 's'}` : String(hits), cx + chipW / 2, hitsY, {
+        T.caption(ctx, hitsWords ? `${hits} hit${hits === 1 ? '' : 's'}` : String(hits), cx + chipW / 2, rowTop + hitsH / 2, {
           size: hitsSize,
           color: live ? (win ? T.PALETTE.mint : T.PALETTE.red) : T.PALETTE.textFaint
         });
@@ -1273,9 +1419,10 @@ export class KenoGame {
 
     const ctx = this.ctx;
     const g = this.geom;
-    // Sized off the grid it covers, so it never spills past the board on a phone.
-    const bw = Math.min(this.width - g.pad * 2, clamp(this.width * 0.62, 150, 340));
-    const bh = clamp(Math.min(g.gh * 0.9, this.height * 0.34), 52, 120);
+    // Sized off the grid it covers, so it never spills past the board on a phone —
+    // and the ceilings ride `s`, so a 630px-tall stage gets a banner to match.
+    const bw = Math.min(g.gw, clamp(this.width * 0.62, 150, Math.round(clamp(340 * g.s, 240, 440))));
+    const bh = clamp(Math.min(g.gh * 0.42, this.height * 0.3), 56, Math.round(clamp(150 * g.s, 96, 190)));
     const bx = (this.width - bw) / 2;
     const by = g.gy + g.gh / 2 - bh / 2;
     const tone = res.won ? (res.multiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint) : T.PALETTE.red;

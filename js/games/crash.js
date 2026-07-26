@@ -33,6 +33,25 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const MULT_STEPS = [0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
 const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120];
 
+/* --- vertical band model ----------------------------------------------------------
+ * Crash is a horizontal-core game: the curve reads left-to-right, so a 366x630 phone
+ * stage must NOT stretch the plot to fill 0.57. The plot is capped at a chart-like
+ * aspect and every surplus pixel is handed to HUD that used to be cramped — a hero
+ * readout ~1.55x its old square-stage size and an in-canvas recent-crash grid (the DOM
+ * results rail is hidden under 720px). Nothing floats: leftovers cascade back into the
+ * readout, then into the plot, so the chart is never a thin band in dead space. */
+const PLOT_ASPECT_CAP = 1.30;   // stacked plot is never taller than chartW / 1.30
+const PLOT_ASPECT_FLOOR = 0.95; // ...nor than chartW / 0.95 once spillover lands on it
+/** Hero block rhythm: [padT][number x 1.16][sub x 1.25][padB] — matches the draw. */
+const HERO_NUM_LINE = 1.16;
+const HERO_SUB_RATIO = 0.24;
+const HERO_SUB_LINE = 1.25;
+const HERO_BLOCK = HERO_NUM_LINE + HERO_SUB_RATIO * HERO_SUB_LINE;
+/** Recent-crash chips reuse app.js multToneCrash() banding: >= 2.00 green, else red. */
+const HIST_GREEN = '#34d399';
+const HIST_RED = '#f87171';
+const HIST_CELLS_MAX = 20; // triggerCrash() caps this.history at 20
+
 export class CrashGame {
   /**
    * @param {HTMLCanvasElement|HTMLElement|string} element Canvas element, container element, or element ID.
@@ -229,11 +248,17 @@ export class CrashGame {
   computeMetrics() {
     const w = Math.max(1, this.width || 0);
     const h = Math.max(1, this.height || 0);
+    const shortAxis = Math.min(w, h);
 
-    // Chrome scale: sub-linear in the short axis, so a 296px phone stage keeps readable
-    // type instead of shrinking everything proportionally. 1.0 lands at a ~620px short
-    // axis — the desktop stage the Gamdom look was tuned against.
-    const ui = clamp(Math.pow(Math.min(w, h) / 620, 0.62), 0.5, 1.25);
+    // Type scale follows the whole box, not the short axis alone: the phone stage is
+    // now 366x630, and keying off 366 renders 8.5px gridlines into 630px of room.
+    // Capped at 1.6x the short axis so a 4:1 landscape strip keeps its tuned chrome.
+    const typeAxis = Math.min(Math.sqrt(w * h), shortAxis * 1.6);
+    const ui = clamp(Math.pow(typeAxis / 620, 0.62), 0.5, 1.25);
+    // Curve / orb / particle geometry stays on the short axis, so desktop and landscape
+    // VFX are identical to the tuned look — only type reacts to the taller box.
+    const vfx = clamp(Math.pow(shortAxis / 620, 0.62), 0.5, 1.25);
+
     const gridFont = clamp(12 * ui, 8.5, 13);
     const gutter = Math.round(clamp(w * 0.012, 4, 10));
 
@@ -245,24 +270,136 @@ export class CrashGame {
       bottom: Math.round(gridFont * 1.5 + clamp(h * 0.03, 6, 16)),
     };
 
-    // The readout is the dominant element, so it tracks height rather than `ui`;
-    // drawMultiplierText() shrinks it further if it would not fit the width.
-    const heroSize = clamp(h * 0.15, 20, 72);
+    const chartW = Math.max(1, w - padding.left - padding.right);
+    const heroX = Math.round(clamp(w * 0.045, 10, 48));
+
+    // --- vertical band solve --------------------------------------------------------
+    // `avail` is everything above the time-axis label row. The plot takes at most
+    // chartW / PLOT_ASPECT_CAP; whatever it refuses becomes hero band + crash grid.
+    const avail = Math.max(1, h - padding.bottom);
+    const plotCapH = chartW / PLOT_ASPECT_CAP;
+    const heroPadT = clamp(h * 0.022, 6, 26);
+    const heroPadB = clamp(h * 0.014, 5, 18);
+    const heroPad = heroPadT + heroPadB;
+    const heroBaseSize = clamp(h * 0.15, 20, 72);
+    const heroMaxSize = Math.max(heroBaseSize, Math.min(w * 0.25, 112));
+    const heroMinBand = heroPad + heroBaseSize * HERO_BLOCK;
+    const heroMaxBand = heroPad + heroMaxSize * HERO_BLOCK;
+
+    // Stack only when the surplus funds a full hero band, otherwise the readout would
+    // come out smaller than the overlay it replaces — tablet at 720x592 is exactly that.
+    const stacked = avail - plotCapH >= heroMinBand;
+
+    let plotTop = padding.top;
+    let plotH = Math.max(1, avail - padding.top);
+    let heroSize = heroBaseSize;
+    let heroY = Math.round(clamp(h * 0.055, 8, 42));
+    let subSize = clamp(heroSize * 0.26, 9, 15);
+    let hist = null;
+
+    if (stacked) {
+      let heroBand = clamp(avail * 0.24, heroMinBand, heroMaxBand);
+      plotH = Math.min(avail - heroBand, plotCapH);
+      let free = avail - heroBand - plotH;
+
+      hist = this.solveHistStrip(w, heroX, free, gridFont, ui);
+      if (hist) free -= hist.h;
+
+      // Leftovers never become dead space: the readout absorbs them first, then the
+      // plot (bounded by PLOT_ASPECT_FLOOR), then the hero band's breathing room.
+      const heroGain = Math.min(free, heroMaxBand - heroBand);
+      heroBand += heroGain;
+      free -= heroGain;
+      const plotGain = Math.min(free, Math.max(0, chartW / PLOT_ASPECT_FLOOR - plotH));
+      plotH += plotGain;
+      free -= plotGain;
+      heroBand += free;
+
+      heroSize = clamp((heroBand - heroPad) / HERO_BLOCK, 20, heroMaxSize);
+      subSize = clamp(heroSize * HERO_SUB_RATIO, 10, 24);
+      // Centre the block in its band so any trailing slack reads as breathing room.
+      const blockH = heroSize * HERO_NUM_LINE + subSize * HERO_SUB_LINE;
+      heroY = Math.round(Math.max(heroPadT * 0.5, (heroBand - blockH) / 2));
+      plotTop = Math.round(heroBand);
+      plotH = Math.round(plotH);
+    }
+
+    const plot = { top: plotTop, h: Math.max(1, plotH), w: chartW };
+    plot.bottom = plot.top + plot.h;
+
+    if (hist) {
+      // Pin the strip to the canvas bottom so band rounding cannot leave a seam.
+      hist.top = plot.bottom + padding.bottom;
+      hist.h = Math.max(1, h - hist.top);
+      const rowRoom = hist.h - hist.headFont * 1.3 - hist.padT - hist.padB;
+      hist.pitch = Math.min(hist.pitch, Math.max(10, rowRoom / hist.rows));
+      hist.chipH = Math.max(8, hist.pitch - hist.gap);
+      // Sized for the longest label the formatter can emit (6 mono advances).
+      hist.font = clamp(Math.min(hist.chipH * 0.44, hist.chipW * 0.24), 9, 21);
+    }
 
     return {
       ui,
+      vfx,
       padding,
       gridFont,
       gutter,
-      heroSize,
-      heroX: Math.round(clamp(w * 0.045, 10, 48)),
-      heroY: Math.round(clamp(h * 0.055, 8, 42)),
-      subSize: clamp(heroSize * 0.26, 9, 15),
-      orbR: clamp(14 * ui, 4.5, 15),
-      lineW: clamp(5 * ui, 2, 5),
+      plot,
+      hist,
+      // The readout is the dominant element. Stacked stages give it a band of its own;
+      // drawMultiplierText() still shrinks it if it would not fit the width.
+      hero: { stacked, x: heroX, y: heroY, size: heroSize, sub: subSize },
+      orbR: clamp(14 * vfx, 4.5, 15),
+      lineW: clamp(5 * vfx, 2, 5),
       markFont: clamp(13 * ui, 8.5, 13.5),
-      markR: clamp(8 * ui, 3.2, 8),
-      partScale: ui,
+      markR: clamp(8 * vfx, 3.2, 8),
+      partScale: vfx,
+    };
+  }
+
+  /**
+   * Solve the recent-crash chip grid for `free` px of surplus, or null when a legible
+   * row will not fit (the 296x354 stage) — the caller then hands that space back.
+   * Resize-time only; the chip *values* are read from this.history at draw time.
+   * @returns {object|null}
+   */
+  solveHistStrip(w, padX, free, gridFont, ui) {
+    const headFont = clamp(gridFont * 1.15, 9, 15);
+    const padT = clamp(9 * ui, 6, 12);
+    const padB = clamp(7 * ui, 5, 10);
+    const gap = clamp(6 * ui, 4, 8);
+    const usableW = Math.max(1, w - padX * 2);
+    // The DOM results rail this stands in for uses 58x30 chips (styles.css .hchip), so
+    // the canvas chip tracks that shape scaled by ui — and a row is only added when it
+    // still fits, rather than packing more rounds in at an unreadable height.
+    const chipMinW = clamp(58 * ui, 44, 76);
+    const chipMinH = clamp(30 * ui, 22, 34);
+    const cols = clamp(Math.floor((usableW + gap) / (chipMinW + gap)), 3, 5);
+    const pitchMin = chipMinH + gap;
+    const pitchMax = clamp(52 * ui, 34, 56);
+
+    const rowRoom = free - headFont * 1.3 - padT - padB;
+    const rows = clamp(Math.floor(rowRoom / pitchMin), 0, Math.ceil(HIST_CELLS_MAX / cols));
+    if (rows < 1) return null;
+
+    const pitch = Math.min(rowRoom / rows, pitchMax);
+    const chipW = (usableW - gap * (cols - 1)) / cols;
+    return {
+      x: padX,
+      w: usableW,
+      top: 0,
+      h: headFont * 1.3 + padT + padB + pitch * rows,
+      cols,
+      rows,
+      cells: cols * rows,
+      pitch,
+      gap,
+      chipW,
+      chipH: pitch - gap,
+      font: clamp(Math.min((pitch - gap) * 0.44, chipW * 0.24), 9, 21),
+      headFont,
+      padT,
+      padB,
     };
   }
 
@@ -274,7 +411,7 @@ export class CrashGame {
 
   initStars() {
     const n = this.starCount();
-    const rScale = clamp(this.metrics ? this.metrics.ui : 1, 0.6, 1.25);
+    const rScale = clamp(this.metrics ? this.metrics.vfx : 1, 0.6, 1.25);
     this.stars = [];
     for (let i = 0; i < n; i++) {
       this.stars.push({
@@ -599,35 +736,32 @@ export class CrashGame {
   }
 
   /**
-   * Compute screen (x, y) canvas coordinates for a given time t and multiplier M.
+   * Project a multiplier onto canvas Y using the shared easing curve. Single source of
+   * truth so curve / orb / markers never desync — four callers (getRocketCoords,
+   * drawGrid, drawCurve, drawCashoutMarkers) and no inline copies.
    */
-  /**
-   * Curved rocket path point at time t. Gamdom-style: starts shallow,
-   * steepens with multiplier. Returns canvas coords for (t, mult).
-   */
-  /**
-   * Project a multiplier onto canvas Y using the shared easing curve.
-   * Single source of truth so curve / orb / markers never desync.
-   */
-  projectY(mult, maxY, padding, chartH) {
+  projectY(mult, maxY) {
+    const plot = this.metrics.plot;
     const linear = Math.min(1, (mult - 1.0) / (maxY - 1.0));
     const normY = Math.pow(linear, 1.45);
-    return this.height - padding.bottom - normY * chartH;
+    return plot.bottom - normY * plot.h;
   }
 
+  /**
+   * Curved rocket path point at time t. Gamdom-style: starts shallow, steepens with
+   * multiplier. Returns canvas coords for (t, mult) plus the live plot box.
+   */
   getRocketCoords(t, mult) {
-    const padding = this.metrics.padding;
-    const chartW = Math.max(1, this.width - padding.left - padding.right);
-    const chartH = Math.max(1, this.height - padding.top - padding.bottom);
+    const { padding, plot } = this.metrics;
 
     const maxX = Math.max(12, t * 1.15);
     const maxY = Math.max(2.5, mult * 1.25);
 
     const normX = Math.min(1.0, t / maxX);
-    const x = padding.left + normX * chartW;
-    const y = this.projectY(mult, maxY, padding, chartH);
+    const x = padding.left + normX * plot.w;
+    const y = this.projectY(mult, maxY);
 
-    return { x, y, chartW, chartH, padding, maxX, maxY };
+    return { x, y, chartW: plot.w, chartH: plot.h, padding, plot, maxX, maxY };
   }
 
   /**
@@ -752,6 +886,9 @@ export class CrashGame {
       this.drawExplosionParticles();
     }
 
+    // Recent-crash grid — present only when the band solve reserved room for it.
+    this.drawHistoryStrip();
+
     // Draw Central Multiplier Readout
     this.drawMultiplierText();
 
@@ -807,21 +944,21 @@ export class CrashGame {
   drawCashoutMarkers(coords) {
     if (!this.cashoutMarkers || !this.cashoutMarkers.length) return;
     const ctx = this.ctx;
-    const { padding, chartW, chartH, maxX, maxY } = coords;
+    const { padding, chartW, chartH, plot, maxX, maxY } = coords;
     const { markR, markFont } = this.metrics;
-    const baseY = this.height - padding.bottom;
+    const baseY = plot.bottom;
 
     // Thinning rather than overlap: below ~8.5px the label is unreadable anyway, and the
-    // stacked payout line only earns its space on tablet-sized stages and up.
+    // stacked payout line only earns its space when the plot can hold two label rows.
     const showMult = markFont >= 8.4 && chartH > markFont * 5;
-    const showPayout = markFont >= 10.5 && this.height >= 300;
+    const showPayout = markFont >= 10.5 && chartH > markFont * 6;
     let lastLabelX = -Infinity;
 
     for (const m of this.cashoutMarkers) {
       if (this.currentMult < m.mult) continue;
       const normX = Math.min(1, m.t / maxX);
       const mx = padding.left + normX * chartW;
-      const my = this.projectY(m.mult, maxY, padding, chartH);
+      const my = this.projectY(m.mult, maxY);
 
       ctx.save();
 
@@ -883,10 +1020,10 @@ export class CrashGame {
    */
   drawGrid(coords) {
     const ctx = this.ctx;
-    const { padding, chartW, chartH, maxX, maxY } = coords;
-    const { gridFont, gutter } = this.metrics;
+    const { padding, chartW, chartH, plot, maxX, maxY } = coords;
+    const { gridFont } = this.metrics;
     const rightEdge = this.width - padding.right;
-    const baseY = this.height - padding.bottom;
+    const baseY = plot.bottom;
 
     ctx.save();
     ctx.lineWidth = 1;
@@ -910,7 +1047,7 @@ export class CrashGame {
     ctx.textBaseline = 'middle';
     let lastY = Infinity;
     for (let m = 1.0; m <= maxY + 1e-6; m += multStep) {
-      const y = this.projectY(m, maxY, padding, chartH);
+      const y = this.projectY(m, maxY);
       if (lastY - y < minGapY) continue;
       lastY = y;
 
@@ -933,12 +1070,12 @@ export class CrashGame {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    const tLabelY = Math.min(baseY + Math.max(3, padding.bottom * 0.2), this.height - gridFont - 1);
+    const tLabelY = Math.min(baseY + Math.max(3, padding.bottom * 0.2), baseY + padding.bottom - gridFont - 1);
     for (let t = 0; t <= maxX + 1e-6; t += timeStep) {
       const x = padding.left + (t / maxX) * chartW;
 
       ctx.beginPath();
-      ctx.moveTo(x, padding.top);
+      ctx.moveTo(x, plot.top);
       ctx.lineTo(x, baseY);
       ctx.stroke();
 
@@ -962,7 +1099,7 @@ export class CrashGame {
    */
   drawCurve(coords) {
     const ctx = this.ctx;
-    const { padding, chartW, chartH, maxX, maxY } = coords;
+    const { padding, chartW, plot, maxX, maxY } = coords;
     const { lineW } = this.metrics;
 
     const points = [];
@@ -975,7 +1112,7 @@ export class CrashGame {
 
       const normX = Math.min(1.0, t / maxX);
       const px = padding.left + normX * chartW;
-      const py = this.projectY(mult, maxY, padding, chartH);
+      const py = this.projectY(mult, maxY);
       points.push({ x: px, y: py });
     }
 
@@ -984,7 +1121,7 @@ export class CrashGame {
     ctx.save();
 
     // Area fill under graph
-    const fillGrad = ctx.createLinearGradient(0, padding.top, 0, this.height - padding.bottom);
+    const fillGrad = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
     if (this.state === 'crashed') {
       fillGrad.addColorStop(0, 'rgba(239, 68, 68, 0.35)');
       fillGrad.addColorStop(1, 'rgba(239, 68, 68, 0.0)');
@@ -997,11 +1134,11 @@ export class CrashGame {
     }
 
     ctx.beginPath();
-    ctx.moveTo(points[0].x, this.height - padding.bottom);
+    ctx.moveTo(points[0].x, plot.bottom);
     for (const pt of points) {
       ctx.lineTo(pt.x, pt.y);
     }
-    ctx.lineTo(points[points.length - 1].x, this.height - padding.bottom);
+    ctx.lineTo(points[points.length - 1].x, plot.bottom);
     ctx.closePath();
     ctx.fillStyle = fillGrad;
     ctx.fill();
@@ -1072,13 +1209,18 @@ export class CrashGame {
   }
 
   /**
-   * Draw top-left multiplier text readout matching Gamdom style (e.g. x1.45).
+   * Multiplier readout. Overlay mode draws it inside the plot's top-left corner (the
+   * desktop / landscape look); stacked mode gives it a dedicated full-width band above
+   * the plot, where it runs ~1.55x the size it had on the old square phone stage.
    */
   drawMultiplierText() {
     const ctx = this.ctx;
-    const { heroSize, heroX, heroY, subSize, padding, gutter } = this.metrics;
-    // Readouts stay inside the plot area — the y-label gutter on the right is theirs.
-    const textW = Math.max(60, this.width - heroX - padding.right - gutter);
+    const { hero, padding, gutter, plot } = this.metrics;
+    const stacked = hero.stacked;
+    // Stacked mode owns the full width; overlay mode must dodge the y-label gutter.
+    const textW = stacked
+      ? Math.max(60, this.width - hero.x * 2)
+      : Math.max(60, this.width - hero.x - padding.right - gutter);
     ctx.save();
 
     let fontColor = '#00ff86';
@@ -1089,6 +1231,13 @@ export class CrashGame {
       fontColor = '#94a3b8';
       text = 'x1.00';
       subText = 'READY \u00b7 Place bet and start round';
+    } else if (this.state === 'running') {
+      // The band has a second line to spare, so show what the button is worth right
+      // now. Display only — the credited amount is still whatever cashout() returns.
+      if (stacked && this.betAmount > 0) {
+        const live = Math.floor(this.betAmount * this.currentMult * 100) / 100;
+        subText = `BET $${this.betAmount.toFixed(2)} \u00b7 CASH OUT $${live.toFixed(2)}`;
+      }
     } else if (this.state === 'cashed_out') {
       fontColor = '#fbbf24';
       const multVal = this.cashedOutMult ? this.cashedOutMult.toFixed(2) : this.currentMult.toFixed(2);
@@ -1096,38 +1245,134 @@ export class CrashGame {
       subText = `CASHED OUT +$${(this.payout || 0).toFixed(2)}`;
     } else if (this.state === 'crashed') {
       fontColor = '#ef4444';
-      text = `CRASHED @ x${this.currentMult.toFixed(2)}`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      // Centred on the plot area (not the canvas) so the banner never reaches the
-      // y-label gutter, and shrunk to fit it at 296px.
-      const bannerW = Math.max(60, this.width - padding.left - padding.right);
-      this.fitFont(text, 900, 'Inter, Roboto Mono, monospace', heroSize * 0.78, bannerW * 0.96, 13);
-      ctx.fillStyle = fontColor;
-      ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
-      ctx.shadowBlur = heroSize * 0.42;
-      ctx.fillText(text, padding.left + bannerW / 2, this.height * 0.44);
-      ctx.restore();
-      return;
+      if (!stacked) {
+        text = `CRASHED @ x${this.currentMult.toFixed(2)}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Centred on the plot area (not the canvas) so the banner never reaches the
+        // y-label gutter, and shrunk to fit it at 296px.
+        const bannerW = Math.max(60, this.width - padding.left - padding.right);
+        this.fitFont(text, 900, 'Inter, Roboto Mono, monospace', hero.size * 0.78, bannerW * 0.96, 13);
+        ctx.fillStyle = fontColor;
+        ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
+        ctx.shadowBlur = hero.size * 0.42;
+        ctx.fillText(text, padding.left + bannerW / 2, this.height * 0.44);
+        ctx.restore();
+        return;
+      }
+      // The stacked band is already the loudest thing on the stage, so the crash reads
+      // as a red readout there instead of a second banner floating over the curve.
+      subText = 'CRASHED \u00b7 Round over';
     }
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const size = this.fitFont(text, 900, 'Inter, Roboto Mono, monospace', heroSize, textW, 16);
+    const size = this.fitFont(text, 900, 'Inter, Roboto Mono, monospace', hero.size, textW, 16);
     ctx.fillStyle = fontColor;
     ctx.shadowColor = fontColor;
     ctx.shadowBlur = size * 0.5;
-    ctx.fillText(text, heroX, heroY);
+    ctx.fillText(text, hero.x, hero.y);
 
     if (subText) {
-      const subY = heroY + size * 1.16;
-      this.fitFont(subText, 700, 'Inter, sans-serif', subSize, textW, 8);
+      const subY = hero.y + size * HERO_NUM_LINE;
+      this.fitFont(subText, 700, 'Inter, sans-serif', hero.sub, textW, 8);
       ctx.fillStyle = this.state === 'cashed_out' ? '#fbbf24' : '#7d8fa8';
       ctx.shadowBlur = 0;
-      ctx.fillText(subText, heroX + 2, subY);
+      ctx.fillText(subText, hero.x + 2, subY);
+    }
+
+    // Hairline under the band so the readout reads as its own row, not floating text.
+    if (stacked) {
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hero.x, plot.top - 0.5);
+      ctx.lineTo(this.width - hero.x, plot.top - 0.5);
+      ctx.stroke();
     }
 
     ctx.restore();
+  }
+
+  /**
+   * Recent-crash chips under the plot. Rendered only when the band solve reserved room
+   * for them — on a phone this is the in-canvas stand-in for the DOM results rail the
+   * shell hides under 720px. Banding matches app.js multToneCrash(): >= 2.00 green.
+   */
+  drawHistoryStrip() {
+    const hist = this.metrics.hist;
+    if (!hist) return;
+    const ctx = this.ctx;
+    const headY = hist.top + hist.headFont * 0.65;
+    const shown = Math.min(this.history.length, hist.cells);
+
+    ctx.save();
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${hist.headFont}px Inter, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.fillText('RECENT CRASHES', hist.x, headY);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.42)';
+    ctx.fillText(shown ? `LAST ${shown}` : 'NO ROUNDS YET', hist.x + hist.w, headY);
+
+    const rowsTop = hist.top + hist.headFont * 1.3 + hist.padT;
+    const radius = Math.min(hist.chipH * 0.34, 12);
+    ctx.textAlign = 'center';
+    ctx.font = `800 ${hist.font}px Roboto Mono, monospace`;
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i < hist.cells; i++) {
+      const x = hist.x + (i % hist.cols) * (hist.chipW + hist.gap);
+      const y = rowsTop + Math.floor(i / hist.cols) * hist.pitch;
+      const val = this.history[i];
+      this.roundRectPath(x, y, hist.chipW, hist.chipH, radius);
+
+      if (val === undefined) {
+        // Empty slots stay drawn: the strip reads as a filling reel, not dead space.
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.028)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        continue;
+      }
+
+      const win = val >= 2;
+      ctx.fillStyle = win ? 'rgba(52, 211, 153, 0.13)' : 'rgba(248, 113, 113, 0.11)';
+      ctx.fill();
+      ctx.strokeStyle = win ? 'rgba(52, 211, 153, 0.42)' : 'rgba(248, 113, 113, 0.34)';
+      ctx.lineWidth = i === 0 ? 1.6 : 1;
+      ctx.stroke();
+
+      // Digits drop as the value grows so the label never outruns the chip.
+      const label = val >= 1000 ? `${Math.round(val / 1000)}kx`
+        : val >= 100 ? `${Math.round(val)}x`
+          : val >= 10 ? `${val.toFixed(1)}x`
+            : `${val.toFixed(2)}x`;
+      ctx.fillStyle = win ? HIST_GREEN : HIST_RED;
+      ctx.fillText(label, x + hist.chipW / 2, y + hist.chipH / 2 + hist.font * 0.05);
+    }
+
+    ctx.restore();
+  }
+
+  /** Rounded-rect path. Local so crash.js stays free of render-layer imports. */
+  roundRectPath(x, y, w, h, r) {
+    const ctx = this.ctx;
+    const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.lineTo(x + w - rad, y);
+    ctx.arcTo(x + w, y, x + w, y + rad, rad);
+    ctx.lineTo(x + w, y + h - rad);
+    ctx.arcTo(x + w, y + h, x + w - rad, y + h, rad);
+    ctx.lineTo(x + rad, y + h);
+    ctx.arcTo(x, y + h, x, y + h - rad, rad);
+    ctx.lineTo(x, y + rad);
+    ctx.arcTo(x, y, x + rad, y, rad);
+    ctx.closePath();
   }
 
   renderIdle() {

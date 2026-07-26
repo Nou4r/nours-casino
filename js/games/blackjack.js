@@ -46,7 +46,11 @@ const OUTCOME_BANNER = Object.freeze({
 
 /** Card aspect (w/h), matching the 78x109 face theme.card() is tuned for. */
 const CARD_AR = 78 / 109;
-/** Card height ceiling, CSS px. Past this a 1200x760 desktop stage looks cartoonish. */
+/**
+ * Card height ceiling at the 820x560 reference table, CSS px. Past this a
+ * 1200x760 desktop stage looks cartoonish. CARD_H_MAX_FRAC lifts it for a
+ * stage taller than the reference.
+ */
 const CARD_H_MAX = 128;
 /** Card height floor, CSS px. theme.card() clamps its index glyph at 9px, so below this the corner stops reading. */
 const CARD_H_MIN = 34;
@@ -60,6 +64,26 @@ const HAND_SPACING_MIN = 0.38;
 const FIT_CARDS = 6;
 /** Below this card height a badge above the hand costs more than it is worth. */
 const STACK_MIN_CARD_H = 58;
+/**
+ * Ceiling lift on a tall stage: the share of stage height one card may own.
+ * The phone stage is 366x630 now, not 366x366 — a flat 128px ceiling there
+ * pins the cards at their old size and leaves a third of the felt empty.
+ */
+const CARD_H_MAX_FRAC = 0.27;
+/** Two-line seat readout height, as a multiple of the compact pill. */
+const TALL_BADGE_K = 2.1;
+/**
+ * Card height below which the two-line readouts and the own-line status cost
+ * more than they return; the small stage keeps the compact chrome instead.
+ */
+const RICH_CARD_MIN = 118;
+/** Clear felt the rich arrangement keeps between the seats, as a share of the band. */
+const SEAT_GUTTER_FRAC = 0.1;
+/** Box h/w where the type scale starts blending off the short axis, and the span of that blend. */
+const TALL_BOX_MIN = 1.25;
+const TALL_BOX_SPAN = 0.45;
+/** Table rules printed on the felt when the gutter between the seats can carry them. */
+const LEGEND_TEXT = 'DEALER STANDS ON 17  \u00b7  DOUBLE DRAWS ONE  \u00b7  SINGLE DECK';
 
 /** Clamp `v` into [lo, hi]. */
 function clampNum(v, lo, hi) {
@@ -495,10 +519,11 @@ export class BlackjackGame {
     this.lay = {
       w: 0, h: 0, s: 1, fs: 1, pad: 20, cx: 400,
       cardW: 78, cardH: 109, cardBoxH: 126, fanRot: 0.2,
-      dealerY: 150, playerY: 340,
-      badgeSide: false, badgeW: 132, badgeH: 34, badgeGap: 8,
+      dealerY: 150, playerY: 340, midY: 245, gutter: 40,
+      badgeSide: false, badgeTall: false, badgeW: 132, badgeH: 34, badgeGap: 8,
       handMaxW: 760, handCx: 400,
       titleH: 15, chipH: 30, footerY: 470,
+      statusOwn: false, statusSize: 11, statusY: 440, legendSize: 0,
       showShoe: true, shoeW: 48, shoeH: 68, shoeX: 740, shoeY: 60,
     };
     /** Per-hand fit, recomputed per row and reused so drawing allocates nothing. */
@@ -1078,11 +1103,18 @@ export class BlackjackGame {
     const h = this.logicalHeight;
     if (!(w > 0) || !(h > 0)) return L; // hidden pane: keep the last good layout
 
-    const raw = Math.min(w / 820, h / 560);
-    // Geometry tracks the stage 1:1, type follows sqrt(raw): a linear type scale
-    // puts 4px labels on a 296px phone stage.
+    const rawW = w / 820;
+    const rawH = h / 560;
+    const raw = Math.min(rawW, rawH);
+    // Geometry tracks the stage 1:1. Type follows a square root — a linear
+    // scale puts 4px labels on a 296px phone stage — of a scale that blends
+    // from the short axis toward the geometric mean as the box gets tall: a
+    // 366x630 stage must not label itself like the 366x366 one it replaced,
+    // while an 812x205 landscape stage has no vertical room to spend and keeps
+    // the short-axis scale it needs, exactly.
+    const tallK = clamp01((h / w - TALL_BOX_MIN) / TALL_BOX_SPAN);
     const s = clampNum(raw, 0.3, 1.15);
-    const fs = clampNum(Math.sqrt(raw), 0.62, 1.12);
+    const fs = clampNum(Math.sqrt(raw + (Math.sqrt(rawW * rawH) - raw) * tallK), 0.62, 1.12);
     const pad = Math.round(clampNum(Math.min(w, h) * 0.045, 8, 22));
 
     const titleH = h >= 230 ? Math.round(15 * fs) : 0; // first thing to go on a 200px stage
@@ -1096,36 +1128,55 @@ export class BlackjackGame {
     const boxK = Math.cos(fanRot) + CARD_AR * Math.sin(fanRot) + 0.05;
 
     const bandTop = pad + titleH;
-    const bandH = Math.max(60, h - bandTop - pad - footerH);
+    const bandLean = Math.max(60, h - bandTop - pad - footerH);
     let rowGap = Math.round(clampNum(18 * fs, 8, 26));
 
     // A badge above the hand costs badgeH+gap of the row. When that starves the
     // cards — phone landscape is ~800x200 — move it into the left gutter.
-    const stackedH = (bandH - rowGap - 2 * (badgeH + badgeGap)) / (2 * boxK);
+    const compactHead = badgeH + badgeGap;
+    const stackedH = (bandLean - rowGap - 2 * compactHead) / (2 * boxK);
     const sideBadge = stackedH < STACK_MIN_CARD_H;
     const badgeW = Math.round(clampNum(126 * fs, 72, Math.max(72, Math.min(150, w * 0.3))));
-    const headH = sideBadge ? 0 : badgeH + badgeGap;
 
     const handLeft = pad + (sideBadge ? badgeW + Math.round(8 * fs) : 0);
     const handMaxW = Math.max(60, w - pad - handLeft);
 
+    // A 6-card hand is the design target, so the width sets the card long
+    // before the fan could run past the stage edge on a 296px phone.
+    const fitW = handMaxW / (1 + (FIT_CARDS - 1) * HAND_SPACING_MIN);
+    const ceilH = Math.max(CARD_H_MAX, h * CARD_H_MAX_FRAC);
+    const wantH = Math.min(ceilH, fitW / CARD_AR);
+
+    // Rich arrangement: a two-line readout per seat and the status on a line of
+    // its own, paid for out of height the cards cannot use anyway. Adopted only
+    // when what is left still buys a card worth looking at plus real felt
+    // between the seats, so the 296px stage keeps the compact chrome.
+    const statusSize = clampNum(15 * fs, 10.5, 19);
+    const statusH = Math.round(statusSize) + Math.round(7 * fs);
+    const tallHead = Math.round(badgeH * TALL_BADGE_K) + badgeGap;
+    const bandRich = bandLean - statusH;
+    const gutterMin = clampNum(bandRich * SEAT_GUTTER_FRAC, rowGap, 90);
+    const richH = (bandRich - gutterMin - 2 * tallHead) / (2 * boxK);
+    const rich = !sideBadge && richH >= Math.min(wantH, RICH_CARD_MIN);
+
+    const headH = sideBadge ? 0 : (rich ? tallHead : compactHead);
+    const bandH = rich ? bandRich : bandLean;
+
     let cardH = clampNum(
-      sideBadge ? (bandH - rowGap) / (2 * boxK) : stackedH,
-      CARD_H_MIN, CARD_H_MAX,
+      sideBadge ? (bandH - rowGap) / (2 * boxK) : (rich ? richH : stackedH),
+      CARD_H_MIN, ceilH,
     );
     let cardW = Math.round(cardH * CARD_AR);
-    // A 6-card hand is the design target: shrink the cards rather than let the
-    // fan run past the stage edge on a 296px phone.
-    const fitW = handMaxW / (1 + (FIT_CARDS - 1) * HAND_SPACING_MIN);
     if (cardW > fitW) {
       cardW = Math.max(24, Math.floor(fitW));
       cardH = Math.round(cardW / CARD_AR);
     }
 
-    const rowH = headH + cardH * boxK;
+    const cardBoxH = cardH * boxK;
+    const rowH = headH + cardBoxH;
     // Leftover height spreads the seats apart instead of pooling as dead felt.
     const slack = bandH - (rowH * 2 + rowGap);
-    if (slack > 0) rowGap += Math.min(slack, bandH * 0.34);
+    if (slack > 0) rowGap += Math.min(slack, bandH * (rich ? 0.44 : 0.34));
     const blockTop = bandTop + (bandH - (rowH * 2 + rowGap)) / 2;
 
     L.w = w;
@@ -1136,19 +1187,34 @@ export class BlackjackGame {
     L.cx = Math.round(w / 2);
     L.cardW = cardW;
     L.cardH = cardH;
-    L.cardBoxH = cardH * boxK;
+    L.cardBoxH = cardBoxH;
     L.fanRot = fanRot;
-    L.dealerY = Math.round(blockTop + headH + L.cardBoxH / 2);
-    L.playerY = Math.round(blockTop + rowH + rowGap + headH + L.cardBoxH / 2);
+    L.dealerY = Math.round(blockTop + headH + cardBoxH / 2);
+    L.playerY = Math.round(blockTop + rowH + rowGap + headH + cardBoxH / 2);
+    // Clear felt between the seats, and its centre: where the banner fits
+    // without landing on the player's readout, and where the legend prints.
+    L.gutter = rowGap;
+    L.midY = Math.round(L.dealerY + cardBoxH / 2 + rowGap / 2);
     L.badgeSide = sideBadge;
+    L.badgeTall = rich;
     L.badgeW = badgeW;
-    L.badgeH = sideBadge ? Math.round(Math.min(badgeH * 1.9, L.cardBoxH * 0.92)) : badgeH;
+    L.badgeH = sideBadge
+      ? Math.round(Math.min(badgeH * 1.9, cardBoxH * 0.92))
+      : (rich ? Math.round(badgeH * TALL_BADGE_K) : badgeH);
     L.badgeGap = badgeGap;
     L.handMaxW = handMaxW;
     L.handCx = Math.round(handLeft + handMaxW / 2);
     L.titleH = titleH;
     L.chipH = chipH;
     L.footerY = Math.round(h - pad - chipH);
+    L.statusOwn = rich;
+    L.statusSize = statusSize;
+    L.statusY = rich
+      ? Math.round(bandTop + bandH + Math.round(statusSize) / 2)
+      : Math.round(h - pad - chipH / 2);
+    // The legend only prints where the gutter is genuinely open felt.
+    const legendSize = Math.max(9, 10.5 * fs);
+    L.legendSize = rowGap >= legendSize * 2.6 ? legendSize : 0;
     // The shoe needs a top band to sit in; a 200px landscape stage has none, so
     // cards fly in from just past the corner instead.
     L.showShoe = h >= 250 && w >= 260;
@@ -1299,13 +1365,18 @@ export class BlackjackGame {
       );
     }
 
+    // The banner owns the gutter the moment a round settles, so the legend
+    // only prints while that felt is otherwise empty.
+    const banner = !!result && (g || this.state === 'game_over') && now >= this.settleAt;
+    if (L.legendSize && !banner) this.drawLegend(ctx, L);
+
     this.drawHand(ctx, dealerHand, L.dealerY, L, now, dScore);
     this.drawHand(ctx, playerHand, L.playerY, L, now, pScore);
 
     this.drawScoreBadge(ctx, L, 'DEALER', dealerHand.length, dScore, dHidden, L.dealerY, this.state === 'dealer_turn');
     this.drawScoreBadge(ctx, L, 'PLAYER', playerHand.length, pScore, pHidden, L.playerY, this.state === 'playing');
 
-    if (result && (g || this.state === 'game_over') && now >= this.settleAt) {
+    if (banner) {
       this.drawBanner(
         ctx, w, h, L, pScore, result,
         g ? g.payout : this.payout,
@@ -1340,7 +1411,9 @@ export class BlackjackGame {
     ctx.strokeStyle = T.alpha(T.PALETTE.mint, 0.07);
     ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.ellipse(w / 2, h * 0.58, w * 0.44, h * 0.46, 0, 0, Math.PI * 2);
+    // Capped against the width so a 0.57 stage draws a table seen from above
+    // rather than a tall oval running off the bottom edge.
+    ctx.ellipse(w / 2, h * 0.58, w * 0.44, Math.min(h * 0.46, w * 0.62), 0, 0, Math.PI * 2);
     ctx.stroke();
 
     // Rails ride the frame inset so they never eat a 296px stage's card room.
@@ -1370,8 +1443,41 @@ export class BlackjackGame {
         SHOE_ROT, BACK_CARD, 1, 1 - i * 0.22,
       );
     }
+    // Labelled off the stack's inside shoulder, not underneath it: below the
+    // stack the caption lands inside the dealer's card row, where a long hand
+    // buries it and a short stage puts it on the cards' top edge.
     const size = Math.max(8, 9 * L.fs);
-    T.caption(ctx, 'SHOE', L.shoeX, L.shoeY + L.shoeH * 0.72 + size, { size });
+    T.caption(ctx, 'SHOE', L.shoeX - L.shoeW * 0.85, L.shoeY - L.shoeH * 0.18, {
+      size, align: 'right',
+    });
+  }
+
+  /**
+   * House rules printed on the felt between the seats. Only reached when the
+   * gutter is open enough to carry them, which is the tall-stage arrangement.
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} L Layout metrics.
+   */
+  drawLegend(ctx, L) {
+    const size = L.legendSize;
+    const maxW = Math.min(L.handMaxW, L.w - L.pad * 4);
+    const drawn = this.captionFit(ctx, LEGEND_TEXT, L.cx, L.midY, maxW, size, T.PALETTE.textFaint);
+    // Hairlines either side, but only out of room the text did not need.
+    const half = this.measureCaption(ctx, LEGEND_TEXT, drawn, 700) / 2 + size;
+    const rule = Math.min(L.pad * 2.5, maxW / 2 - half);
+    if (rule < size) return;
+
+    ctx.save();
+    ctx.strokeStyle = T.alpha(T.PALETTE.mint, 0.12);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(L.cx - half - rule, L.midY);
+    ctx.lineTo(L.cx - half, L.midY);
+    ctx.moveTo(L.cx + half, L.midY);
+    ctx.lineTo(L.cx + half + rule, L.midY);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /**
@@ -1516,22 +1622,63 @@ export class BlackjackGame {
     if (!count) return;
 
     let col = active ? T.PALETTE.mint : T.PALETTE.textDim;
-    let value = String(score.score);
+    const num = String(score.score);
+    let tag = '';
+    let value = num;
     if (concealed) {
-      value = `${score.score} + ?`;
+      tag = '+ ?';
+      value = `${num} + ?`;
     } else if (score.isBust) {
       col = T.PALETTE.red;
-      value = `${score.score} BUST`;
+      tag = 'BUST';
+      value = `${num} BUST`;
     } else if (score.isBlackjack) {
       col = T.PALETTE.gold;
+      tag = 'BLACKJACK';
       value = 'BLACKJACK';
     } else if (score.isSoft) {
-      value = `${score.score} SOFT`;
+      tag = 'SOFT';
+      value = `${num} SOFT`;
     }
 
     const bh = L.badgeH;
     const labelSize = Math.max(8.5, 9.5 * L.fs);
     const valueSize = Math.max(10.5, 13.5 * L.fs);
+
+    if (L.badgeTall) {
+      // Tall stage: the seat gets a real readout — caption over a total sized
+      // to be read at arm's length, with the soft/bust qualifier beside it
+      // instead of crammed into the same string at the same size.
+      const capSize = Math.max(9.5, 11 * L.fs);
+      const numSize = Math.max(17, 25 * L.fs);
+      const tagSize = Math.max(9, 11.5 * L.fs);
+      const padX = Math.max(12, 18 * L.fs);
+      const gap = tag ? Math.max(6, 9 * L.fs) : 0;
+      const numW = this.measureCaption(ctx, num, numSize, 800);
+      const tagW = tag ? this.measureCaption(ctx, tag, tagSize, 700) : 0;
+      const bw = Math.min(L.handMaxW, Math.max(
+        L.badgeW,
+        numW + gap + tagW + padX * 2,
+        this.measureCaption(ctx, label, capSize, 700) + padX * 2,
+      ));
+      const x = Math.round(L.handCx - bw / 2);
+      const y = Math.round(handY - L.cardBoxH / 2 - L.badgeGap - bh);
+      // Total and qualifier are centred as one unit, so the pill stays
+      // symmetric whether or not there is a qualifier to show.
+      const numX = Math.round(L.handCx - (numW + gap + tagW) / 2);
+
+      T.panel(ctx, x, y, bw, bh, { radius: Math.max(8, 12 * L.fs), accent: col });
+      T.caption(ctx, label, L.handCx, y + bh * 0.28, { size: capSize, color: T.PALETTE.textFaint });
+      T.caption(ctx, num, numX, y + bh * 0.66, {
+        align: 'left', size: numSize, weight: 800, color: col,
+      });
+      if (tag) {
+        T.caption(ctx, tag, numX + numW + gap, y + bh * 0.7, {
+          align: 'left', size: tagSize, color: col === T.PALETTE.mint ? T.PALETTE.textDim : col,
+        });
+      }
+      return;
+    }
 
     if (L.badgeSide) {
       // Short landscape stage: the badge moves into the left gutter as label
@@ -1581,14 +1728,16 @@ export class BlackjackGame {
     if (!preset) return;
 
     const text = (result === 'loss' && pScore.isBust) ? 'BUST' : preset.text;
-    // Midway between the seats. On a short stage the rows nearly touch, so the
-    // banner rides over them on its own backdrop rather than being squeezed out.
-    const y = Math.round((L.dealerY + L.playerY) / 2);
-    const bh = Math.round(clampNum(66 * L.fs, 40, 78));
+    // Centred on the clear felt between the seats and capped to it, so on a
+    // tall stage it drops into the gutter without landing on the player's
+    // readout. On a short stage the rows nearly touch, so the banner keeps its
+    // 40px floor and rides over them on its own backdrop instead.
+    const y = L.midY;
+    const bh = Math.round(clampNum(66 * L.fs, 40, Math.max(40, Math.min(78, L.gutter))));
     const bw = Math.round(Math.min(w - L.pad * 4, Math.max(170, 420 * L.fs)));
     const r = Math.max(10, 16 * L.fs);
     // 900-weight Inter runs ~0.68em per glyph; fit the word, then the box.
-    const size = Math.min(Math.max(20, 38 * L.fs), (bw - r * 2) / (text.length * 0.68));
+    const size = Math.min(Math.max(20, 38 * L.fs), (bw - r * 2) / (text.length * 0.68), bh * 0.62);
 
     ctx.save();
     ctx.fillStyle = 'rgba(4, 8, 14, 0.62)';
@@ -1608,7 +1757,9 @@ export class BlackjackGame {
   }
 
   /**
-   * Bet chip on the left, round status on the right.
+   * Bet chip on the left and the round status: squeezed in beside the chip on
+   * a short stage, on a full-width line of its own once the layout can pay for
+   * it, where it renders at full size instead of shrinking to an ellipsis.
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} w
    * @param {number} h
@@ -1640,13 +1791,22 @@ export class BlackjackGame {
       statusLeft = L.pad + chipW + Math.round(10 * L.fs);
 
       // The BET/DOUBLED tag is the first thing to drop: below ~420px the status
-      // line needs every pixel of the footer it can get.
-      if (w >= 420) {
+      // line needs every pixel of the footer it can get. Once the status has a
+      // line of its own the whole chip row is free, so the tag always fits.
+      if (L.statusOwn || w >= 420) {
         const tag = doubled ? 'DOUBLED' : 'BET';
         const tagSize = Math.max(8.5, 9 * L.fs);
         T.caption(ctx, tag, statusLeft, chipY + chipH / 2, { align: 'left', size: tagSize });
         statusLeft += this.measureCaption(ctx, tag, tagSize, 700) + Math.round(10 * L.fs);
       }
+    }
+
+    if (L.statusOwn) {
+      this.captionFit(
+        ctx, status, L.cx, L.statusY, w - L.pad * 2,
+        L.statusSize, T.PALETTE.textDim,
+      );
+      return;
     }
 
     this.captionFit(

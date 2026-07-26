@@ -2668,11 +2668,39 @@ function bindEvents() {
     if (!isMuted) audio?.playButtonClick();
   });
 
+  /* Phone tools sheet.
+     Below 720px CSS turns .topbar__actions into a bottom sheet so the header is
+     one row and the game gets the space. The seven tools are NOT duplicated —
+     this only toggles how the existing nav is presented, so every handler above
+     still owns its own button and there is no second wiring to drift.
+     The close-on-select listener is DELEGATED to the nav rather than attached
+     per button: four of the tools open a modal, and a sheet left open would
+     paint over the dialog it just launched. Delegation also covers any tool
+     added later without remembering this. */
+  const toolsNav = $('#topbar-actions');
+  const toolsBtn = $('#btn-more');
+  const toolsScrim = $('#tools-scrim');
+
+  function setToolsOpen(open) {
+    document.body.classList.toggle('tools-open', open);
+    toolsBtn?.setAttribute('aria-expanded', String(open));
+  }
+
+  toolsBtn?.addEventListener('click', () => {
+    setToolsOpen(!document.body.classList.contains('tools-open'));
+    audio?.playButtonClick();
+  });
+  toolsScrim?.addEventListener('click', () => setToolsOpen(false));
+  toolsNav?.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('.btn')) setToolsOpen(false);
+  });
+
   /* hotkeys */
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = openModals().pop();
       if (modal) { e.preventDefault(); closeModal(modal); return; }
+      if (document.body.classList.contains('tools-open')) { e.preventDefault(); setToolsOpen(false); return; }
     }
     if (e.key === 'Tab') { trapFocus(e); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;

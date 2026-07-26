@@ -586,8 +586,12 @@ export class DiceGame {
    *
    * Called from resize() only — per AGENTS §5 cached geometry is derived on size change,
    * never per frame. Every dimension the stage paints with is produced here, because the
-   * same module has to read as a casino board at 296x296 (phone portrait pane),
-   * 800x200 (phone landscape) and 1200x760 (desktop).
+   * same module has to read as a casino board at 296x354 (phone portrait pane),
+   * 366x630 (tall phone pane), 812x205 (phone landscape) and 1170x630 (desktop).
+   *
+   * The rail is horizontal-core: it is a 0..100 number line, so it is never stretched to
+   * fill a tall box. Surplus height is spent on the stacked chrome instead — the hero
+   * readout, the history pin band and the stat block, in that priority order.
    *
    * @returns {object|null} Metrics, or null while the stage has no measurable size.
    */
@@ -596,24 +600,38 @@ export class DiceGame {
     const h = this.height;
     if (w < 2 || h < 2) { this._m = null; return null; }
 
-    // Chrome scale. Reference stage is 900x620; tracking the tighter axis means a short
-    // landscape strip shrinks the stacked chrome rather than only the type. 0.5 is the
-    // legibility floor — both 296x296 and 800x200 bottom out there.
-    const s = clamp(Math.min(w / 900, h / 620), 0.5, 1.2);
+    // Chrome scale. Reference stage is 900x620. The geometric blend of both axes types the
+    // stage for its box rather than for its narrow axis — a 366x630 pane reads at 0.64
+    // where tracking the tighter axis alone floored it at 0.5. The blend is then leashed to
+    // 1.6x the tighter axis so an 812x205 landscape strip still shrinks its stacked chrome
+    // instead of overflowing it. 0.5 is the legibility floor.
+    const axW = w / 900;
+    const axH = h / 620;
+    const s = clamp(Math.min(Math.sqrt(axW * axH), Math.min(axW, axH) * 1.6), 0.5, 1.2);
+
+    // How portrait the stage is: 0 for anything squarish-or-wider — the 812x205 landscape
+    // strip, the 720x592 tablet pane and every desktop size sit at 0.82:1 or flatter, so
+    // they keep byte-identical chrome — ramping to 1 by 1.35:1, which every phone portrait
+    // pane in the target table clears.
+    const tall = clamp((h / w - 0.90) / 0.45, 0, 1);
 
     // Touch sizing. The knob is the rail's grab affordance, so it holds >= 32 CSS px of
-    // stage even at 296 where proportional scaling would hand it 13.
-    const knobR = clamp(Math.min(w, h) * 0.045, 16, 21);
-    const railH = clamp(Math.min(w, h) * 0.05, 15, 26);
+    // stage even at 296 where proportional scaling would hand it 13. On a tall stage the
+    // surplus height buys it real presence: 43 CSS px of visual diameter at 296x354 and
+    // 53 at 366x630, against the 33 both used to get.
+    const knobR = clamp(Math.min(w, h) * 0.045, 16, 21) + tall * clamp(w * 0.028, 0, 11);
+    // The rail thickens with the knob so the bar never reads as a thread under it, but it
+    // is capped hard — filling a 630px box with rail is exactly the wrong answer here.
+    const railH = Math.min(clamp(Math.min(w, h) * 0.05, 15, 26) + tall * clamp(w * 0.014, 0, 6), 30);
 
     // Side padding must clear half a knob plus the "0"/"100" tick labels at the ends.
     const pad = clamp(w * 0.075, knobR + 8, 96);
     const trackW = Math.max(40, w - pad * 2);
 
     /* --- rail band, measured out from the rail centre --- */
-    const bubbleH = clamp(40 * s, 25, 44);
+    let bubbleH = clamp(40 * s, 25, 44);
     const bubbleW = clamp(92 * s, 62, 100);
-    const bubbleTail = clamp(12 * s, 7, 14);
+    let bubbleTail = clamp(12 * s, 7, 14);
     // The settled chevron lives between the knob and the bubble tail, so the gap has to
     // be tall enough to hold it — otherwise the two collide when roll lands on target.
     const chevH = Math.max(8, knobR * 0.55);
@@ -622,41 +640,59 @@ export class DiceGame {
     // Ticks clear the knob, not the rail: the knob always overhangs a touch-thin rail.
     const tickTop = Math.max(railH / 2 + Math.max(3, 5 * s), knobR + 3);
     const tickLen = Math.max(4, 7 * s);
-    const tickFont = clamp(11 * s, 8.5, 12);
-    const belowRail = tickTop + tickLen + Math.max(3, 4 * s) + tickFont;
+    let tickFont = clamp(11 * s, 8.5, 12);
+    const belowFixed = tickTop + tickLen + Math.max(3, 4 * s);
 
     /* --- block costs --- */
     const marginTop = clamp(14 * s, 8, 18);
     const marginBottom = clamp(20 * s, 10, 26);
     const gap = clamp(14 * s, 6, 18);
     const subGap = clamp(9 * s, 5, 10);
-    const subFont = clamp(13 * s, 9.5, 14);
-    const subBlock = subGap + subFont;
-    const cardsH = clamp(54 * s, 40, 60);
+    let subFont = clamp(13 * s, 9.5, 14);
+    let cardsH = clamp(54 * s, 40, 60);
     const stripH = clamp(32 * s, 28, 36);
-    const pinsH = clamp(16 * s, 10, 18);
+    let pinsH = clamp(16 * s, 10, 18);
     const pinGap = clamp(8 * s, 4, 9);
-    const pinCapFont = clamp(9.5 * s, 8, 10);
-    const pinBand = pinGap + pinsH + Math.max(3, 4 * s) + pinCapFont;
+    let pinCapFont = clamp(9.5 * s, 8, 10);
+    const pinLead = Math.max(3, 4 * s);
 
-    // Hero is bounded by the track it sits over (5 mono glyphs ~= 3em) and by height, then
-    // by HERO_POP so the landing overshoot has reserved headroom.
+    // Stacked stats: three full-width rows instead of three cramped columns. Offered only
+    // on a decisively portrait stage, where side-by-side cards would each be under 100 CSS
+    // px wide and bottom out at the 7px caption floor — and where the height to stack them
+    // is exactly the height that would otherwise sit empty.
+    const stackGap = clamp(9 * s, 5, 14);
+    let stackRowH = clamp(46 * s, 38, 58);
+    const canStack = tall >= 0.8 && w >= 260;
+
+    // Hero is bounded by the stage width it is centred on (5 mono glyphs ~= 3em) and by
+    // height, then by HERO_POP so the landing overshoot has reserved headroom.
     const POP = HERO_POP;
-    const heroMax = clamp(Math.min(trackW / 3.1, h * 0.22), 20, 92);
+    const heroMax = clamp(Math.min((w - pad) / 3.05, h * 0.22), 20, 100);
     const heroWant = Math.min(clamp(46 * s, 34, 92), heroMax);
 
     // Spend the vertical budget: the rail band is fixed cost, the hero absorbs the slack,
     // and the extras are shed in priority order until the readout is comfortable again.
-    let statsMode = 'cards';
+    let statsMode = canStack ? 'stack' : 'cards';
     let pins = true;
     let bubble = true;
-    const extras = () =>
-      (pins ? pinBand : 0) +
-      (statsMode === 'cards' ? gap + cardsH : statsMode === 'strip' ? gap + stripH : 0);
+
+    const statsBlock = () =>
+      statsMode === 'stack' ? stackRowH * 3 + stackGap * 2 :
+      statsMode === 'cards' ? cardsH :
+      statsMode === 'strip' ? stripH : 0;
+    const pinBand = () => pinGap + pinsH + pinLead + pinCapFont;
+    const belowRail = () => belowFixed + tickFont;
+    const extras = () => {
+      const sb = statsBlock();
+      return (pins ? pinBand() : 0) + (sb ? gap + sb : 0);
+    };
     const heroRoom = () =>
-      h - marginTop - marginBottom - subBlock - gap - belowRail - knobR - bubbleGap -
+      h - marginTop - marginBottom - (subGap + subFont) - gap - belowRail() - knobR - bubbleGap -
       (bubble ? bubbleH + bubbleTail : 0) - extras();
 
+    // Stacked rows cost three times a single card, so they collapse back to a row of
+    // cards before anything is dropped outright.
+    if (statsMode === 'stack' && heroRoom() / POP < heroWant) statsMode = 'cards';
     if (heroRoom() / POP < heroWant) pins = false;
     if (heroRoom() / POP < heroWant) statsMode = 'strip';
     // The bubble sheds before the stat readout does: it only repeats the target the
@@ -664,15 +700,55 @@ export class DiceGame {
     if (heroRoom() / POP < heroWant) bubble = false;
     if (heroRoom() / POP < heroWant) statsMode = 'none';
 
+    const heroSize = clamp(heroRoom() / POP, 14, heroMax);
+    const heroBox = heroSize * POP;
+
+    /* --- spend the surplus ---------------------------------------------------------
+     * The hero is now at its width-bound maximum, so on a tall stage a few hundred px can
+     * still be unclaimed. Hand it out in priority order instead of letting it centre out
+     * as dead space. Every grant is exact — `spend` never hands out more than is left —
+     * so the block sums below stay consistent with the shed pass above.
+     */
+    let slack = Math.max(0, heroRoom() - heroBox);
+    const spend = (want) => {
+      const got = clamp(want, 0, slack);
+      slack -= got;
+      return got;
+    };
+
+    // Type first: cheap, and a 630px-tall stage must not caption at the 296px floor just
+    // because it is 366 wide.
+    subFont += spend(clamp(h * 0.028, subFont, 20) - subFont);
+    tickFont += spend(clamp(h * 0.020, tickFont, 15) - tickFont);
+
+    // Then the HUD, smallest fixed appetite first: the pin band and the bubble each cap
+    // out inside 30 px, while the stat block will happily eat 3x92. Funding them first is
+    // what stops a 336x526 pane from painting 66px stat rows over 11px history pins.
+    if (pins) {
+      pinsH += spend(clamp(h * 0.045, pinsH, 30) - pinsH);
+      pinCapFont += spend(clamp(h * 0.017, pinCapFont, 13) - pinCapFont);
+    }
+    if (bubble) {
+      bubbleH += spend(clamp(h * 0.075, bubbleH, 54) - bubbleH);
+      bubbleTail += spend(clamp(bubbleH * 0.3, bubbleTail, 16) - bubbleTail);
+    }
+    // Everything left goes to the stat block — on a tall stage that is the whole point.
+    if (statsMode === 'stack') {
+      stackRowH += spend((clamp(h * 0.125, stackRowH, 92) - stackRowH) * 3) / 3;
+    } else if (statsMode === 'cards') {
+      cardsH += spend(clamp(h * 0.13, cardsH, 84) - cardsH);
+    }
+
     // bubbleGap stays reserved even with the bubble hidden — it is the settled chevron's
     // slot, and without it the chevron would collide with the sub-caption above.
     const aboveRail = (bubble ? bubbleH + bubbleTail : 0) + bubbleGap + knobR;
-    const heroSize = clamp(heroRoom() / POP, 14, heroMax);
-    const heroBox = heroSize * POP;
-    const statsH = statsMode === 'cards' ? cardsH : statsMode === 'strip' ? stripH : 0;
+    const below = belowRail();
+    const subBlock = subGap + subFont;
+    const band = pins ? pinBand() : 0;
+    const statsH = statsBlock();
     const statsY = statsH ? h - marginBottom - statsH : 0;
 
-    const groupH = heroBox + subBlock + gap + aboveRail + belowRail + (pins ? pinBand : 0);
+    const groupH = heroBox + subBlock + gap + aboveRail + below + band;
     const availTop = (statsH ? statsY - gap : h - marginBottom) - marginTop;
     // Bias leftover space upward so the rail keeps sitting near the optical centre.
     const y0 = marginTop + Math.max(0, (availTop - groupH) * 0.45);
@@ -691,10 +767,10 @@ export class DiceGame {
       bubbleY: railCY - aboveRail,
       chevH, chevPad,
       tickTop, tickLen, tickFont,
-      tickLabelY: railCY + belowRail - tickFont / 2,
-      pins, pinsH, pinCapFont,
-      pinY: railCY + belowRail + pinGap,
-      statsMode, statsH, statsY,
+      tickLabelY: railCY + below - tickFont / 2,
+      pins, pinsH, pinCapFont, pinLead,
+      pinY: railCY + below + pinGap,
+      statsMode, statsH, statsY, stackRowH, stackGap,
       statsGap: clamp(12 * s, 5, 14),
       markerBar: Math.max(2.5, railH * 0.16),
       markerOrb: Math.max(5, railH * 0.34),
@@ -973,7 +1049,7 @@ export class DiceGame {
     }
     ctx.restore();
 
-    T.caption(ctx, `Last ${n}`, m.pad, y + m.pinsH + Math.max(3, 4 * m.s) + m.pinCapFont / 2, {
+    T.caption(ctx, `Last ${n}`, m.pad, y + m.pinsH + m.pinLead + m.pinCapFont / 2, {
       size: m.pinCapFont,
       align: 'left',
       color: T.PALETTE.textFaint,
@@ -1193,9 +1269,11 @@ export class DiceGame {
   }
 
   /**
-   * Win chance, multiplier and profit on win. `cards` frames each in its own glass
-   * panel; on a short stage layout() downgrades to a single shared `strip` and then to
-   * nothing, so the readout degrades instead of overflowing.
+   * Win chance, multiplier and profit on win. `stack` gives each its own full-width row —
+   * the arrangement a portrait stage wants, where three columns would be sub-100px wide;
+   * `cards` frames each in its own glass panel; on a short stage layout() downgrades to a
+   * single shared `strip` and then to nothing, so the readout degrades instead of
+   * overflowing.
    * @param {string} accent
    */
   drawStats(accent) {
@@ -1207,23 +1285,40 @@ export class DiceGame {
     const pad = m.pad;
     const sh = m.statsH;
     const sy = m.statsY;
+    const stack = m.statsMode === 'stack';
     const strip = m.statsMode === 'strip';
-    const gap = strip ? 0 : m.statsGap;
-    const sw = Math.max(40, (w - pad * 2 - gap * 2) / 3);
+    const gap = strip || stack ? 0 : m.statsGap;
+    const sw = stack
+      ? Math.max(60, w - pad * 2)
+      : Math.max(40, (w - pad * 2 - gap * 2) / 3);
+
+    // 4dp only where the value column can hold "10000.0000x" without shrinking to mush.
+    const valueBudget = stack ? sw * 0.5 : sw - 8;
 
     const chance = `${this.getWinChance().toFixed(2)}%`;
-    // 4dp only where the cell can hold "10000.0000x" without shrinking to mush.
-    const mult = `${this.getMultiplier().toFixed(sw >= 118 ? 4 : 2)}x`;
+    const mult = `${this.getMultiplier().toFixed(valueBudget >= 118 ? 4 : 2)}x`;
     const profit = `$${this.getProfit().toFixed(2)}`;
 
-    if (strip) T.panel(ctx, pad, sy, w - pad * 2, sh, { radius: Math.max(8, sh * 0.3), accent });
-
-    let sx = strip ? pad : (w - (sw * 3 + gap * 2)) / 2;
     const cells = [
       ['Win Chance', chance, T.PALETTE.cyan],
       ['Multiplier', mult, T.PALETTE.text],
       ['Profit on Win', profit, T.PALETTE.mint],
     ];
+
+    if (stack) {
+      const rh = m.stackRowH;
+      let ry = sy;
+      for (let i = 0; i < cells.length; i++) {
+        T.panel(ctx, pad, ry, sw, rh, { radius: Math.max(10, rh * 0.24), accent });
+        this.drawStatRow(pad, ry, sw, rh, cells[i][0], cells[i][1], cells[i][2]);
+        ry += rh + m.stackGap;
+      }
+      return;
+    }
+
+    if (strip) T.panel(ctx, pad, sy, w - pad * 2, sh, { radius: Math.max(8, sh * 0.3), accent });
+
+    let sx = strip ? pad : (w - (sw * 3 + gap * 2)) / 2;
     for (let i = 0; i < cells.length; i++) {
       if (!strip) T.panel(ctx, sx, sy, sw, sh, { radius: Math.max(8, sh * 0.22), accent });
       this.drawStatCell(sx + sw / 2, sy, sh, sw, cells[i][0], cells[i][1], cells[i][2]);
@@ -1232,7 +1327,9 @@ export class DiceGame {
   }
 
   /**
-   * One stat readout — label over value, both fitted to the cell so nothing clips.
+   * One stat readout — label over value, both fitted to the cell so nothing clips. The
+   * caps track the cell height so a tall stage's roomier card types up with it instead of
+   * pinning a 60px panel to a 10px label.
    * @param {number} cx Cell centre x.
    * @param {number} y Cell top.
    * @param {number} h Cell height.
@@ -1245,11 +1342,40 @@ export class DiceGame {
     const ctx = this.ctx;
     const budget = cw - 8;
     T.caption(ctx, label, cx, y + h * 0.31, {
-      size: fitSize(ctx, label.toUpperCase(), clamp(h * 0.17, 7, 10), budget, 'Inter, sans-serif', 700),
+      size: fitSize(ctx, label.toUpperCase(), clamp(h * 0.17, 7, 15), budget, 'Inter, sans-serif', 700),
       color: T.PALETTE.textFaint,
     });
     numText(ctx, value, cx, y + h * 0.69, {
-      size: fitSize(ctx, value, clamp(h * 0.3, 10.5, 17), budget, MONO, 800),
+      size: fitSize(ctx, value, clamp(h * 0.3, 10.5, 26), budget, MONO, 800),
+      color: valueColor,
+    });
+  }
+
+  /**
+   * One stacked stat row — label flush left, value flush right on a shared baseline. A
+   * portrait stage buys the row its full track width, so both halves get several times
+   * the type a third-of-the-width column could carry.
+   *
+   * @param {number} x Row left edge.
+   * @param {number} y Row top.
+   * @param {number} rw Row width.
+   * @param {number} rh Row height.
+   * @param {string} label
+   * @param {string} value
+   * @param {string} valueColor
+   */
+  drawStatRow(x, y, rw, rh, label, value, valueColor) {
+    const ctx = this.ctx;
+    const inset = Math.max(10, rw * 0.045);
+    const cy = y + rh / 2;
+    T.caption(ctx, label, x + inset, cy, {
+      size: fitSize(ctx, label.toUpperCase(), clamp(rh * 0.30, 9, 19), rw * 0.46 - inset, 'Inter, sans-serif', 700),
+      align: 'left',
+      color: T.PALETTE.textFaint,
+    });
+    numText(ctx, value, x + rw - inset, cy, {
+      size: fitSize(ctx, value, clamp(rh * 0.42, 13, 32), rw * 0.52 - inset, MONO, 800),
+      align: 'right',
       color: valueColor,
     });
   }

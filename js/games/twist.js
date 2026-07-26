@@ -32,6 +32,10 @@ const MAX_SHOCKWAVES = 10;
 const LEGEND_ROW = 30;        // legend row height at the reference stage
 const REF_STAGE = 420;        // stage edge every pixel constant in this file is authored against
 const BODY_HALO_REACH = 3.4;  // outermost ink of an orbiting body (halo / corona) as a multiple of its radius
+const STRIP_ROW = 40;         // promoted board strip height at the reference stage
+const CAP_LEGIBLE = 9.5;      // smallest centre caption worth drawing; below it the short form wins
+const CAP_FAMILY = 'Inter, sans-serif';                 // must match T.caption
+const HERO_FAMILY = "Inter, 'Roboto Mono', monospace";  // must match T.heroText
 
 /** Deep-space base colour that unlit segments sink into. */
 const VOID_R = 7, VOID_G = 11, VOID_B = 18;
@@ -199,11 +203,28 @@ export class TwistGame {
 
     // Reusable scratch objects so the draw path allocates nothing per frame.
     this.geom = {
-      w: -1, h: -1, s: 1, cx: 0, cy: 0, maxRadius: 0, stroke: 8, innerR: 0,
-      gapPx: SEG_GAP_PX, compact: false,
-      legend: { on: false, rows: 1, x: 0, y: 0, w: 0, h: 0 }
+      w: -1, h: -1, s: 1, hud: 1, rev: 0, cx: 0, cy: 0, maxRadius: 0, stroke: 8, innerR: 0,
+      gapPx: SEG_GAP_PX,
+      // Centre glass: fixed for a given stage size, so only the two strings
+      // inside it are ever measured per frame.
+      core: { pw: 0, ph: 0, x: 0, y: 0, radius: 8, inset: 0, hero: 12, cap: 8 },
+      strip: { on: false, x: 0, y: 0, w: 0, h: 0, cellW: 0, inset: 8, labelSize: 9, valueSize: 14 },
+      legend: {
+        on: false, rows: 1, tall: false, x: 0, y: 0, w: 0, h: 0,
+        cellW: 0, cellH: 0, inset: 8, dotR: 4, size: 10, valSize: 10, meterH: 0
+      }
     };
-    this._readout = { mult: 1.00, accent: T.PALETTE.text, label: 'READY TO SPIN', labelColor: T.PALETTE.textDim, blur: 18 };
+    this._readout = {
+      mult: 1.00, accent: T.PALETTE.text, label: 'READY TO SPIN', short: 'READY',
+      labelColor: T.PALETTE.textDim, blur: 18
+    };
+    // Caption fit is a two-measure decision (long form, then the short one).
+    // Cached on the label plus the layout revision, so a steady stage measures
+    // nothing at all.
+    this._capCache = { rev: -1, label: '', text: '', size: 8 };
+    // Board strip strings, rebuilt only when the tally behind them moves.
+    this._boardCache = { lit: -1, board: '0/36', next: '' };
+    this._fullText = `${this.calculateMultiplier(TOTAL_SEGMENTS).toFixed(2)}x`;
 
     this.needsPaint = true;
     this._wasVisible = true;
@@ -758,8 +779,15 @@ export class TwistGame {
    * Resolve stage geometry into the reusable `this.geom` scratch object.
    *
    * Everything downstream — ring radii, stroke widths, segment gaps, body
-   * sizes, every font — is derived from `g.s`, so the stack reads the same on
-   * a 296px phone stage as on a 1200px desktop one.
+   * sizes, every font — is derived from `g.s` / `g.hud`, so the stack reads the
+   * same on a 296px phone stage as on a 1200px desktop one.
+   *
+   * Three rings are radially symmetric, so the stack can never be wider than
+   * the stage's short axis. On a 0.57 portrait phone that leaves ~230px of
+   * height the circles physically cannot use: `free`. It is not padding — it is
+   * the budget the taller tally bar, the board strip and the bigger centre
+   * caption are all paid for out of. A stage with no surplus (desktop, tablet,
+   * the landscape sliver) spends nothing and lands on exactly the old layout.
    * @private
    */
   _measure() {
@@ -771,6 +799,7 @@ export class TwistGame {
     if (g.w === w && g.h === h) return g;
     g.w = w;
     g.h = h;
+    g.rev++;
 
     // One scale drives every pixel constant here. The clamp stops a 4:1
     // landscape sliver collapsing type to nothing and a 1200px desktop stage
@@ -789,11 +818,20 @@ export class TwistGame {
     const band = bottom ? rowH + pad : 0;
     const rail = side ? colW + pad : 0;
 
-    const availW = Math.max(0, w - pad * 2 - rail);
     const availH = Math.max(0, h - pad * 2 - band);
+    // On a portrait phone the side margin is the last thing standing between
+    // the stack and the full stage width, and the only ink that lands in it is
+    // the sun halo's outermost gradient stop, which is already transparent —
+    // so trim it exactly where the rings lose on width. A stage whose rings are
+    // height-bound (desktop, tablet, the sliver) keeps its margin, because
+    // widening there would buy the rings nothing.
+    const widthBound = Math.max(0, w - pad * 2 - rail) <= availH;
+    const padX = widthBound ? Math.max(5, Math.round(pad * 0.55)) : pad;
+    const availW = Math.max(0, w - padX * 2 - rail);
     // Rings are circular, so the smaller axis rules: a landscape stage lays out
     // the same stack a square one does instead of running off top and bottom.
     const fit = Math.min(availW, availH) * 0.5;
+    const ringD = fit * 2;
 
     // The outermost ink is the Sun's halo riding the outer ring, not the ring
     // stroke — reserve for it or the glow takes a hard cut at the canvas edge.
@@ -807,22 +845,86 @@ export class TwistGame {
     g.maxRadius = R;
     g.stroke = clamp(R * 0.052, 2.5, 20);
     g.gapPx = clamp(SEG_GAP_PX * s, 3.5, 12);
-    // With a side rail it is the ring+rail group that gets centred, so the
-    // composition still reads as balanced on a wide stage.
-    g.cx = side ? (w - fit * 2 - rail) * 0.5 + fit : w * 0.5;
-    g.cy = pad + availH * 0.5;
     g.innerR = Math.max(12, R * this.ringConfigs[0].radiusRatio - g.stroke * 0.85);
-    // Long-form captions stop fitting the centre glass well before the stage
-    // stops being usable; under this the readout switches to compact labels.
-    g.compact = g.innerR * 1.55 < 122;
 
+    // Height the circles cannot reach — ~230px at 366x630, 0 on desktop. Chrome
+    // and type scale with it, so a 630px-tall stage stops drawing 9px labels
+    // just because its width says 366.
+    const free = Math.max(0, availH - ringD);
+    const hud = s * (1 + clamp(free / Math.max(1, h), 0, 0.42) * 0.8);
+    g.hud = hud;
+
+    // The tally grows into that surplus: the same three cells, but tall enough
+    // to carry a readable count and a fill meter instead of a 10px strip.
     const L = g.legend;
     L.on = bottom || side;
     L.rows = bottom ? 1 : 3;
-    L.w = bottom ? Math.min(availW, Math.round(clamp(348 * s, 220, 430))) : colW;
-    L.h = bottom ? rowH : rowH * 3;
+    const grow = bottom && free >= rowH ? Math.round(Math.min(free * 0.42, rowH * 2.4)) : 0;
+    L.tall = grow >= rowH * 0.9;
+    L.h = L.on ? (bottom ? rowH + grow : rowH * 3) : 0;
+    L.w = bottom
+      ? (L.tall ? availW : Math.min(availW, Math.round(clamp(348 * s, 220, 430))))
+      : colW;
+
+    // Board strip above the rings. Only a stage still holding surplus after the
+    // taller tally seats one, which is why it shows up on phones and never on
+    // desktop, tablet or the sliver.
+    const P = g.strip;
+    const stripH = Math.round(clamp(STRIP_ROW * hud, 32, 62));
+    P.on = L.tall && Math.max(0, free - grow) >= stripH * 2.4;
+    P.h = P.on ? stripH : 0;
+
+    // Vertical flow: [strip] rings [tally], one `pad` between blocks, and the
+    // leftover shared evenly above, between and below so the stage never opens
+    // one dead band under the rings. With zero leftover this is bit-for-bit the
+    // old "centre the rings, pin the bar to the bottom edge".
+    const blocks = 1 + (P.on ? 1 : 0) + (bottom && L.on ? 1 : 0);
+    const stackH = ringD + P.h + (bottom ? L.h : 0);
+    const air = Math.max(0, (h - pad * 2 - stackH - pad * (blocks - 1)) / (blocks + 1));
+    let cursor = pad + air;
+    if (P.on) {
+      P.y = cursor;
+      cursor += P.h + pad + air;
+    }
+    // With a side rail it is the ring+rail group that gets centred, so the
+    // composition still reads as balanced on a wide stage.
+    g.cx = side ? (w - ringD - rail) * 0.5 + fit : w * 0.5;
+    g.cy = cursor + fit;
+    cursor += ringD + pad + air;
+
+    P.w = availW;
+    P.x = g.cx - P.w * 0.5;
+    P.cellW = P.w / 3;
+    P.inset = Math.max(6, 10 * hud);
+    P.labelSize = clamp(9 * hud, 8, 12);
+    P.valueSize = clamp(15 * hud, 12, 23);
+
     L.x = bottom ? g.cx - L.w * 0.5 : g.cx + fit + pad;
-    L.y = bottom ? h - pad - L.h : clamp(g.cy - L.h * 0.5, pad, Math.max(pad, h - pad - L.h));
+    L.y = bottom ? cursor : clamp(g.cy - L.h * 0.5, pad, Math.max(pad, h - pad - L.h));
+    L.cellW = L.rows === 1 ? L.w / 3 : L.w;
+    L.cellH = L.rows === 1 ? L.h : L.h / 3;
+    // The short bar and the rail keep the art scale; only the tall cards get
+    // the surplus-driven one.
+    const ls = L.tall ? hud : s;
+    L.inset = Math.max(7, 14 * ls);
+    L.dotR = Math.max(2.4, (L.tall ? 5.4 : 4.2) * ls);
+    L.size = clamp(10 * ls, 8, L.tall ? 15 : 13);
+    L.valSize = L.tall ? clamp(20 * hud, 13, 32) : L.size;
+    L.meterH = L.tall ? Math.max(3.5, 5 * hud) : 0;
+
+    const C = g.core;
+    C.pw = g.innerR * 1.55;
+    C.ph = g.innerR * 0.92;
+    C.x = g.cx - C.pw * 0.5;
+    C.y = g.cy - C.ph * 0.5;
+    C.radius = Math.min(18 * s, C.ph * 0.3);
+    C.inset = C.pw * 0.88;
+    C.hero = clamp(C.ph * 0.46, 11, 56);
+    // Caption type rides the surplus too: the glass on a tall stage has room
+    // for the long caption, and `_resolveCaption` measures whether it fits
+    // rather than guessing from the panel width.
+    const boost = hud / s;
+    C.cap = clamp(C.ph * 0.15 * boost, 8, 14 * boost);
 
     return g;
   }
@@ -971,6 +1073,7 @@ export class TwistGame {
     ctx.restore();
 
     this.drawStateWash(ctx, w, h, g);
+    if (g.strip.on) this.drawStrip(ctx, g);
     if (g.legend.on) this.drawLegend(ctx, g);
 
     ctx.restore();
@@ -1199,37 +1302,39 @@ export class TwistGame {
   }
 
   /**
-   * Resolve the centre readout (value, accent, caption) for the current state.
-   * Writes into a reusable object so the draw path stays allocation-free.
+   * Resolve the centre readout (value, accent, both caption forms) for the
+   * current state. Writes into a reusable object so the draw path stays
+   * allocation-free. Which caption actually lands is `_resolveCaption`'s call —
+   * it measures, so a stage with the room always gets the long form.
    */
   resolveReadout() {
     const r = this._readout;
-    // A phone-sized centre glass cannot hold "BUSTED AT 12/36" at a legible
-    // size, so the caption drops to its short form rather than being shrunk
-    // under 8px by _fitText.
-    const short = this.geom.compact;
     if (this.overlayLife > 0 && this.overlayTone === 'bust') {
       r.mult = this.overlayMult;
       r.accent = T.PALETTE.red;
-      r.label = short ? `BUST ${this.overlaySegs}/${TOTAL_SEGMENTS}` : `BUSTED AT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.label = `BUSTED AT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.short = `BUST ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
       r.labelColor = T.alpha(T.PALETTE.red, 0.85);
       r.blur = 34;
     } else if (this.overlayLife > 0 && this.overlayTone === 'cashout') {
       r.mult = this.overlayMult;
       r.accent = T.PALETTE.gold;
-      r.label = short ? `PAID ${this.overlaySegs}/${TOTAL_SEGMENTS}` : `CASHED OUT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.label = `CASHED OUT ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
+      r.short = `PAID ${this.overlaySegs}/${TOTAL_SEGMENTS}`;
       r.labelColor = T.alpha(T.PALETTE.gold, 0.85);
       r.blur = 34;
     } else if (this.inGame) {
       r.mult = this.multiplier;
       r.accent = T.PALETTE.mint;
-      r.label = short ? `${this.totalLitCount}/${TOTAL_SEGMENTS} SEGS` : `${this.totalLitCount} / ${TOTAL_SEGMENTS} SEGMENTS`;
+      r.label = `${this.totalLitCount} / ${TOTAL_SEGMENTS} SEGMENTS`;
+      r.short = `${this.totalLitCount}/${TOTAL_SEGMENTS} SEGS`;
       r.labelColor = T.PALETTE.textDim;
       r.blur = 26;
     } else {
       r.mult = this.multiplier;
       r.accent = T.PALETTE.text;
-      r.label = short ? 'READY' : 'READY TO SPIN';
+      r.label = 'READY TO SPIN';
+      r.short = 'READY';
       r.labelColor = T.PALETTE.textFaint;
       r.blur = 14;
     }
@@ -1239,38 +1344,32 @@ export class TwistGame {
   /** Glass readout panel at the centre of the orbit. */
   drawCore(ctx, g) {
     const r = this.resolveReadout();
-    const s = g.s;
-    const innerR = g.innerR;
-    const pw = innerR * 1.55;
-    const ph = innerR * 0.92;
-    const x = g.cx - pw / 2;
-    const y = g.cy - ph / 2;
+    const C = g.core;
 
     // containment ring ties the rectangular panel back to the circular stage
     ctx.save();
     ctx.beginPath();
-    ctx.arc(g.cx, g.cy, innerR, 0, TAU);
-    ctx.lineWidth = Math.max(1, 1.2 * s);
+    ctx.arc(g.cx, g.cy, g.innerR, 0, TAU);
+    ctx.lineWidth = Math.max(1, 1.2 * g.s);
     ctx.strokeStyle = T.alpha(r.accent, 0.18);
     ctx.stroke();
     ctx.restore();
 
-    T.panel(ctx, x, y, pw, ph, { radius: Math.min(18 * s, ph * 0.3), accent: r.accent });
+    T.panel(ctx, C.x, C.y, C.pw, C.ph, { radius: C.radius, accent: r.accent });
 
-    // Fit both readouts to the panel so a long caption or a four-figure
-    // multiplier can never bleed past the glass.
-    const inset = pw * 0.88;
+    // Fit the hero to the panel so a four-figure multiplier can never bleed
+    // past the glass. The caption is fitted and cached by _resolveCaption.
     const mult = `${r.mult.toFixed(2)}x`;
-    const heroSize = this._fitText(ctx, mult, 900, clamp(ph * 0.46, 11, 56), "Inter, 'Roboto Mono', monospace", inset);
-    T.heroText(ctx, mult, g.cx, g.cy - ph * 0.12, {
+    const heroSize = this._fitText(ctx, mult, 900, C.hero, HERO_FAMILY, C.inset);
+    T.heroText(ctx, mult, g.cx, g.cy - C.ph * 0.12, {
       size: heroSize,
       color: r.accent,
-      blur: r.blur * s
+      blur: r.blur * g.s
     });
 
-    const capSize = this._fitText(ctx, String(r.label).toUpperCase(), 700, clamp(ph * 0.15, 8, 14), 'Inter, sans-serif', inset);
-    T.caption(ctx, r.label, g.cx, g.cy + ph * 0.29, {
-      size: capSize,
+    const cap = this._resolveCaption(ctx, r, g);
+    T.caption(ctx, cap.text, g.cx, g.cy + C.ph * 0.29, {
+      size: cap.size,
       color: r.labelColor
     });
   }
@@ -1286,6 +1385,35 @@ export class TwistGame {
     ctx.restore();
     if (measured <= maxW || measured <= 0) return size;
     return Math.max(7, size * (maxW / measured));
+  }
+
+  /**
+   * Caption text + size for the centre glass.
+   *
+   * The long form is measured against the real glass in the real font, and
+   * only drops to its short form when fitting it would push the type under
+   * `CAP_LEGIBLE` — panel width alone was never the question, and the old
+   * `pw < 122` guess made a 366x630 stage say "READY" in a glass with room for
+   * "READY TO SPIN". Cached on the label and the layout revision, so a steady
+   * stage measures nothing.
+   * @private
+   */
+  _resolveCaption(ctx, r, g) {
+    const cache = this._capCache;
+    if (cache.rev === g.rev && cache.label === r.label) return cache;
+
+    let text = r.label;
+    let size = this._fitText(ctx, text.toUpperCase(), 700, g.core.cap, CAP_FAMILY, g.core.inset);
+    if (size < CAP_LEGIBLE && r.short !== r.label) {
+      text = r.short;
+      size = this._fitText(ctx, text.toUpperCase(), 700, g.core.cap, CAP_FAMILY, g.core.inset);
+    }
+
+    cache.rev = g.rev;
+    cache.label = r.label;
+    cache.text = text;
+    cache.size = size;
+    return cache;
   }
 
   /** Expanding rings for bust / cashout / segment ignition. */
@@ -1362,46 +1490,172 @@ export class TwistGame {
     }
   }
 
-  /** Ring colour key + per-ring fill count, as a bottom bar or a side rail. */
+  /**
+   * Ring colour key + per-ring fill count. Three shapes, one data set: the
+   * one-line bar (short bottom bar), the three-row side rail, and the tall
+   * cards a portrait phone's surplus height pays for.
+   */
   drawLegend(ctx, g) {
     const L = g.legend;
-    const s = g.s;
-    const cellW = L.rows === 1 ? L.w / 3 : L.w;
-    const cellH = L.rows === 1 ? L.h : L.h / 3;
-    const inset = Math.max(7, 14 * s);
-    const dotR = Math.max(2.4, 4.2 * s);
-    const size = clamp(10 * s, 8, 13);
-
-    T.panel(ctx, L.x, L.y, L.w, L.h, { radius: Math.max(8, 12 * s) });
+    T.panel(ctx, L.x, L.y, L.w, L.h, { radius: Math.max(8, 12 * (L.tall ? g.hud : g.s)) });
+    if (L.tall) {
+      this.drawLegendCards(ctx, g);
+      return;
+    }
 
     for (let i = 0; i < this.ringConfigs.length; i++) {
       const conf = this.ringConfigs[i];
       const paint = this.ringPaint[i];
       const litCount = this.segments[conf.id].reduce(countLit, 0);
-      const left = L.rows === 1 ? L.x + cellW * i : L.x;
-      const midY = (L.rows === 1 ? L.y : L.y + cellH * i) + cellH / 2;
+      const left = L.rows === 1 ? L.x + L.cellW * i : L.x;
+      const midY = (L.rows === 1 ? L.y : L.y + L.cellH * i) + L.cellH / 2;
       const active = litCount > 0;
 
       ctx.save();
       ctx.fillStyle = active ? conf.color : paint.dim;
       ctx.shadowColor = conf.colorGlow;
-      ctx.shadowBlur = active ? 10 * s : 0;
+      ctx.shadowBlur = active ? 10 * g.s : 0;
       ctx.beginPath();
-      ctx.arc(left + inset, midY, dotR, 0, TAU);
+      ctx.arc(left + L.inset, midY, L.dotR, 0, TAU);
       ctx.fill();
       ctx.restore();
 
-      T.caption(ctx, conf.name, left + inset + dotR + Math.max(3, 5 * s), midY, {
-        size,
+      T.caption(ctx, conf.name, left + L.inset + L.dotR + Math.max(3, 5 * g.s), midY, {
+        size: L.size,
         align: 'left',
         color: active ? T.PALETTE.text : T.PALETTE.textDim
       });
-      T.caption(ctx, `${litCount}/${conf.count}`, left + cellW - inset * 0.75, midY, {
-        size,
+      T.caption(ctx, `${litCount}/${conf.count}`, left + L.cellW - L.inset * 0.75, midY, {
+        size: L.size,
         align: 'right',
         color: active ? conf.color : T.PALETTE.textFaint
       });
     }
+  }
+
+  /**
+   * Tall bar: one card per ring — dot, name, a count big enough to read at
+   * arm's length and a fill meter. Same three cells the short bar draws, spent
+   * into the height a round stack cannot use.
+   */
+  drawLegendCards(ctx, g) {
+    const L = g.legend;
+    const hud = g.hud;
+    const nameY = L.y + L.cellH * 0.26;
+    const valY = L.y + L.cellH * 0.60;
+    const meterY = L.y + L.cellH - L.inset * 0.5 - L.meterH;
+    const meterW = L.cellW - L.inset * 2;
+    const radius = L.meterH * 0.5;
+
+    for (let i = 0; i < this.ringConfigs.length; i++) {
+      const conf = this.ringConfigs[i];
+      const paint = this.ringPaint[i];
+      const litCount = this.segments[conf.id].reduce(countLit, 0);
+      const left = L.x + L.cellW * i;
+      const active = litCount > 0;
+
+      if (i > 0) this.drawDivider(ctx, left, L.y + L.inset * 0.6, L.y + L.cellH - L.inset * 0.6);
+
+      ctx.save();
+      ctx.fillStyle = active ? conf.color : paint.dim;
+      ctx.shadowColor = conf.colorGlow;
+      ctx.shadowBlur = active ? 10 * hud : 0;
+      ctx.beginPath();
+      ctx.arc(left + L.inset + L.dotR, nameY, L.dotR, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+
+      T.caption(ctx, conf.name, left + L.inset + L.dotR * 2 + Math.max(4, 5 * hud), nameY, {
+        size: L.size,
+        align: 'left',
+        color: active ? T.PALETTE.text : T.PALETTE.textDim
+      });
+
+      T.heroText(ctx, `${litCount}/${conf.count}`, left + L.inset, valY, {
+        size: L.valSize,
+        weight: 800,
+        align: 'left',
+        color: active ? conf.color : T.PALETTE.textFaint,
+        blur: active ? 12 * hud : 0
+      });
+
+      ctx.save();
+      ctx.fillStyle = paint.hollow;
+      T.roundRect(ctx, left + L.inset, meterY, meterW, L.meterH, radius);
+      ctx.fill();
+      if (active) {
+        ctx.fillStyle = conf.color;
+        ctx.shadowColor = conf.colorGlow;
+        ctx.shadowBlur = 8 * hud;
+        const fill = Math.max(L.meterH, meterW * (litCount / conf.count));
+        T.roundRect(ctx, left + L.inset, meterY, fill, L.meterH, radius);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Board strip above the rings: the tally, what one more lit segment pays and
+   * the ceiling a full board reaches. All three read straight off live state
+   * and `calculateMultiplier` — the same source the centre hero uses — so the
+   * strip can never quote a number the round does not honour.
+   */
+  drawStrip(ctx, g) {
+    const P = g.strip;
+    const board = this._boardText();
+    const labelY = P.y + P.h * 0.33;
+    const valueY = P.y + P.h * 0.70;
+    const maxW = P.cellW - P.inset * 2;
+
+    T.panel(ctx, P.x, P.y, P.w, P.h, { radius: Math.max(8, 12 * g.hud) });
+
+    for (let i = 0; i < 3; i++) {
+      const cx = P.x + P.cellW * (i + 0.5);
+      if (i > 0) this.drawDivider(ctx, P.x + P.cellW * i, P.y + P.inset * 0.7, P.y + P.h - P.inset * 0.7);
+
+      const label = i === 0 ? 'BOARD' : i === 1 ? 'NEXT' : 'FULL';
+      const value = i === 0 ? board.board : i === 1 ? board.next : this._fullText;
+      const live = i === 0 ? this.totalLitCount > 0 : this.inGame;
+      const tone = i === 0 ? T.PALETTE.text : i === 1 ? T.PALETTE.cyan : T.PALETTE.gold;
+
+      T.caption(ctx, label, cx, labelY, { size: P.labelSize, color: T.PALETTE.textFaint });
+      T.heroText(ctx, value, cx, valueY, {
+        size: this._fitText(ctx, value, 800, P.valueSize, HERO_FAMILY, maxW),
+        weight: 800,
+        color: live ? tone : T.PALETTE.textDim,
+        blur: live ? 10 * g.hud : 0
+      });
+    }
+  }
+
+  /** Hairline between two HUD cells. @private */
+  drawDivider(ctx, x, y0, y1) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x) + 0.5, y0);
+    ctx.lineTo(Math.round(x) + 0.5, y1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Board tally + next-step multiplier for the strip, rebuilt only when the
+   * tally moves so the draw path allocates nothing on a steady frame.
+   * @private
+   */
+  _boardText() {
+    const c = this._boardCache;
+    if (c.lit !== this.totalLitCount) {
+      c.lit = this.totalLitCount;
+      c.board = `${this.totalLitCount}/${TOTAL_SEGMENTS}`;
+      c.next = this.totalLitCount >= TOTAL_SEGMENTS
+        ? 'MAX'
+        : `${this.calculateMultiplier(this.totalLitCount + 1).toFixed(2)}x`;
+    }
+    return c;
   }
 }
 

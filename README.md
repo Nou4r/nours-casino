@@ -10,6 +10,8 @@ synthesised. The one external request in the whole app is the Google Fonts style
 Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it falls back to the
 system stack and runs fully offline.
 
+**▶ Play it: [nou4r.github.io/nours-casino](https://nou4r.github.io/nours-casino/)**
+
 Serve the folder over HTTP and it runs.
 
 ```bash

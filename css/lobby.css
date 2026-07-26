@@ -1,0 +1,1307 @@
+/* =========================================================================
+   Nour's Casino — Lobby
+   Loads after styles.css and css/gamdom.css, so it inherits their tokens
+   (--mint --ink --rail --green --text --bg --bg-deep --gold --ease --spring)
+   and wins plain-selector ties on source order alone. Nothing in this file
+   is forced with an importance flag.
+
+   SVG transform rules (read before editing any .card-art block)
+   -------------------------------------------------------------
+   A `transform=""` presentation attribute maps to the CSS `transform`
+   property, and `transform-origin` wraps the WHOLE resulting matrix. So
+   giving an attribute-carrying node a non-zero origin silently relocates it,
+   even before a keyframe runs. Three patterns keep that from happening:
+
+   1. Pure translation (.lobby__orb, .ha-coin, .ca-strip, .ca-knob, the
+      plinko .ca-ball) — origin-independent, so translate freely with either
+      `transform: translate…` or the `translate` property.
+   2. Rotate/scale on a node with NO attribute — set `transform-box: fill-box;
+      transform-origin: center` (own centre) or an explicit user-space origin
+      when the node must pivot about a shared point, e.g. every twist node
+      turns about (80, 50).
+   3. Rotate/scale on a node WITH an attribute (.ca-die--b, blackjack
+      .ca-card--a/--c) — restate the attribute as a CSS `transform` against an
+      explicit user-space origin. Same pose, but now one property that the
+      keyframes and the hover state can extend cleanly.
+
+   Two animations on one node may never both target `transform`; the crash
+   orb splits its path travel onto `translate` and its bloom onto `scale`.
+
+   Motion budget
+   -------------
+   Each scene keeps one always-running signature motion (plus anything that
+   must stay phase-locked to it) and parks its secondary flourishes on
+   `animation-play-state: paused`, resumed on hover/focus. Every paused
+   keyframe set resolves to the resting pose at 0% AND 100%, so freezing
+   mid-flight can never strand a node somewhere absurd. Only transform,
+   opacity and stroke-dashoffset are ever animated.
+
+   Nothing that declares an animation-name exceeds specificity (0,3,0), so
+   the closing reduced-motion block switches all of it off through a single
+   `#lobby …` id-prefixed selector.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- Tokens */
+
+.lobby {
+  --lobby-max: 1560px;
+  --lobby-pad: clamp(12px, 1.8vw, 22px);
+  --hair: rgba(255, 255, 255, .075);
+  --hair-hi: rgba(255, 255, 255, .13);
+  --card-r: 16px;
+  --card-surface: linear-gradient(180deg, #141c28 0%, #0d131d 62%, #0a0f18 100%);
+  --card-sheen: linear-gradient(168deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .012) 42%, rgba(255, 255, 255, 0) 72%);
+}
+
+/* ------------------------------------------------------- Route switching */
+/* Attribute-selector specificity beats `.layout` (0,1,0) and its 1080px
+   `display:flex` override on its own — no forced override needed. */
+
+body[data-route="lobby"] main.layout { display: none; }
+body[data-route="game"] #lobby { display: none; }
+
+body[data-route="lobby"] .game-nav,
+body[data-route="lobby"] #btn-home { display: none; }
+
+/* ---------------------------------------------------- Topbar home button */
+
+#btn-home {
+  flex: none;
+  color: var(--text-dim);
+  border-color: rgba(255, 255, 255, .1);
+  transition:
+    color .18s var(--ease),
+    background .18s var(--ease),
+    border-color .18s var(--ease),
+    transform .12s var(--ease);
+}
+#btn-home:hover {
+  color: var(--mint);
+  background: rgba(0, 255, 134, .1);
+  border-color: rgba(0, 255, 134, .42);
+  transform: translateY(-1px);
+}
+#btn-home:active { transform: translateY(0) scale(.94); }
+
+/* ============================================================ Lobby shell */
+
+.lobby {
+  position: relative;
+  isolation: isolate;
+  padding-block: clamp(10px, 1.6vw, 20px) clamp(30px, 5vw, 68px);
+}
+
+/* Fine dot texture, masked so it only survives near the top of the page. */
+.lobby::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, rgba(233, 238, 248, .075) 1px, transparent 0);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(118% 74% at 50% 0%, #000 10%, transparent 74%);
+  mask-image: radial-gradient(118% 74% at 50% 0%, #000 10%, transparent 74%);
+}
+
+/* Content column — mirrors .layout's max-width + padding so the lobby and
+   the game screen share one gutter. */
+.lobby > .lobby-hero,
+.lobby > .lobby-toolbar,
+.lobby > .lobby-grid,
+.lobby > .lobby-empty,
+.lobby > .lobby-foot {
+  position: relative;
+  z-index: 2;
+  max-width: var(--lobby-max);
+  margin-inline: auto;
+  padding-inline: var(--lobby-pad);
+}
+
+/* --------------------------------------------------- Ambient colour orbs */
+
+.lobby__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lobby__orb {
+  position: absolute;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  /* Blur is STATIC — the layer rasterises once and only its transform moves. */
+  filter: blur(88px);
+  will-change: transform;
+}
+
+.lobby__orb--a {
+  width: 46vw;
+  max-width: 620px;
+  top: -16vw;
+  left: -12vw;
+  background: radial-gradient(circle, rgba(0, 255, 134, .5), rgba(0, 255, 134, 0) 68%);
+  animation: lbOrbA 27s ease-in-out infinite;
+}
+.lobby__orb--b {
+  width: 40vw;
+  max-width: 560px;
+  top: 2vw;
+  right: -11vw;
+  background: radial-gradient(circle, rgba(139, 92, 246, .46), rgba(139, 92, 246, 0) 68%);
+  animation: lbOrbB 33s ease-in-out infinite;
+}
+.lobby__orb--c {
+  width: 54vw;
+  max-width: 720px;
+  bottom: -26vw;
+  left: 20vw;
+  background: radial-gradient(circle, rgba(34, 211, 238, .3), rgba(34, 211, 238, 0) 70%);
+  animation: lbOrbC 41s ease-in-out infinite;
+}
+
+@keyframes lbOrbA {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(6vw, 4vh, 0) scale(1.12); }
+}
+@keyframes lbOrbB {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.06); }
+  50%      { transform: translate3d(-5vw, 6vh, 0) scale(.92); }
+}
+@keyframes lbOrbC {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(.96); }
+  50%      { transform: translate3d(4vw, -5vh, 0) scale(1.1); }
+}
+
+/* ================================================================== Hero */
+
+.lobby-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 400px);
+  gap: clamp(20px, 4vw, 60px);
+  align-items: center;
+  padding-block: clamp(26px, 4.4vw, 58px) clamp(20px, 2.8vw, 38px);
+}
+
+.lobby-hero__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(12px, 1.4vw, 18px);
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------- Eyebrow */
+
+.lobby-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 134, .26);
+  background: rgba(0, 255, 134, .075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.lobby-hero__eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  animation: lbDotPulse 2.2s var(--ease) infinite;
+}
+.lobby-hero__eyebrow span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #8df3c4;
+}
+
+@keyframes lbDotPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 255, 134, .5);  opacity: 1; }
+  70%  { box-shadow: 0 0 0 7px rgba(0, 255, 134, 0); opacity: .68; }
+  100% { box-shadow: 0 0 0 0 rgba(0, 255, 134, 0);   opacity: 1; }
+}
+
+/* ----------------------------------------------------------------- Title */
+
+.lobby-hero__title {
+  font-size: clamp(40px, 6.6vw, 76px);
+  font-weight: 900;
+  line-height: .94;
+  letter-spacing: -.035em;
+  background: linear-gradient(96deg, #ffffff 4%, #d7efe4 38%, var(--mint) 98%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.lobby-hero__title em {
+  font-style: normal;
+  background: linear-gradient(96deg, var(--gold-hi) 2%, var(--gold) 38%, var(--mint) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.lobby-hero__sub {
+  max-width: 52ch;
+  font-size: clamp(13.5px, 1.1vw, 15.5px);
+  font-weight: 500;
+  line-height: 1.62;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------- Actions */
+
+.lobby-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.btn--lg {
+  padding: 13px 22px;
+  font-size: 14.5px;
+  letter-spacing: .015em;
+  border-radius: 11px;
+}
+.lobby-hero__actions .btn--ghost { border-color: rgba(255, 255, 255, .13); }
+
+/* ------------------------------------------------------------ Stat strip */
+
+.lobby-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin: clamp(6px, 1vw, 12px) 0 0;
+}
+
+.lobby-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--hair);
+  background: var(--card-sheen), rgba(17, 24, 35, .62);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+.lobby-stat dt {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.lobby-stat dd {
+  margin: 0;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: clamp(14.5px, 1.4vw, 19px);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+#lobby-stat-balance { color: var(--mint); }
+#lobby-stat-best    { color: var(--gold); }
+
+/* -------------------------------------------------------------- Hero art */
+
+.lobby-hero__art {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.hero-art {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+  overflow: visible;
+}
+
+.hero-art .ha-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ha-ring--1 { animation: haSpin 28s linear infinite; }
+/* Ring 2 has no dash pattern, so rotation alone reads as nothing — it also
+   breathes on opacity, a separate property, so the two never fight. */
+.ha-ring--2 { animation: haSpin 19s linear infinite reverse, haRingFade 7.5s ease-in-out infinite; }
+.ha-ring--3 { animation: haSpin 12s linear infinite; }
+
+@keyframes haSpin { to { transform: rotate(360deg); } }
+@keyframes haRingFade {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+
+/* Coins carry transform="translate(...)" — animate the composable property. */
+.hero-art .ha-coin { animation: haBob 4.8s ease-in-out infinite; }
+.ha-coin--2 { animation-duration: 5.6s; animation-delay: -1.7s; }
+.ha-coin--3 { animation-duration: 6.4s; animation-delay: -3.2s; }
+
+@keyframes haBob {
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 -10px; }
+}
+
+.hero-art .ha-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: haTwinkle 3.4s ease-in-out infinite;
+}
+.ha-spark--2 { animation-delay: -.5s;  animation-duration: 4.1s; }
+.ha-spark--3 { animation-delay: -1.1s; animation-duration: 2.9s; }
+.ha-spark--4 { animation-delay: -1.7s; animation-duration: 3.8s; }
+.ha-spark--5 { animation-delay: -2.3s; animation-duration: 3.2s; }
+.ha-spark--6 { animation-delay: -2.9s; animation-duration: 4.4s; }
+
+@keyframes haTwinkle {
+  0%, 100% { opacity: .16; transform: scale(.55); }
+  45%      { opacity: 1;   transform: scale(1.3); }
+}
+
+/* =============================================================== Toolbar */
+
+/* Child-combinator selector: the content-column rule above also sets
+   `position`, and at (0,2,0) it would otherwise nail this bar to `relative`
+   and offset it straight down by its own `top`. */
+.lobby > .lobby-toolbar {
+  position: sticky;
+  top: calc(var(--topbar-h) - 2px);
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 13px;
+}
+/* Full-bleed tint so cards scrolling under the bar stay legible. */
+.lobby-toolbar::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(50% - 50vw);
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(10, 17, 32, .95), rgba(10, 17, 32, .74));
+  border-bottom: 1px solid var(--hair);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+}
+
+/* ---------------------------------------------------------- Search field */
+
+.lobby-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  max-width: 380px;
+  min-width: 0;
+}
+.lobby-search__ico {
+  position: absolute;
+  left: 13px;
+  color: var(--text-faint);
+  pointer-events: none;
+  transition: color .2s var(--ease);
+}
+.lobby-search .input {
+  padding: 11px 14px 11px 38px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 11px;
+  background: rgba(9, 14, 24, .82);
+  border-color: rgba(255, 255, 255, .13);
+}
+.lobby-search .input:hover { border-color: rgba(148, 163, 184, .26); }
+.lobby-search .input:focus {
+  border-color: rgba(0, 255, 134, .62);
+  box-shadow: 0 0 0 3px rgba(0, 255, 134, .15);
+  background: rgba(9, 14, 24, .95);
+}
+.lobby-search:focus-within .lobby-search__ico { color: var(--mint); }
+/* WebKit's native clear glyph renders near-black on this surface. */
+.lobby-search .input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  background:
+    linear-gradient(45deg,  transparent 44%, var(--text-dim) 44%, var(--text-dim) 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, var(--text-dim) 44%, var(--text-dim) 56%, transparent 56%);
+}
+
+/* ---------------------------------------------------------- Filter chips */
+
+.lobby-filters {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+  margin: -2px;
+}
+.lobby-filters::-webkit-scrollbar { display: none; }
+
+.lobby-filter {
+  flex: none;
+  padding: 8px 15px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--hair);
+  transition:
+    color .18s var(--ease),
+    background .18s var(--ease),
+    border-color .18s var(--ease),
+    box-shadow .18s var(--ease),
+    transform .12s var(--ease);
+}
+.lobby-filter:hover:not(.is-active) {
+  color: var(--text);
+  background: rgba(255, 255, 255, .075);
+  border-color: rgba(148, 163, 184, .26);
+  transform: translateY(-1px);
+}
+.lobby-filter.is-active {
+  color: var(--ink);
+  background: linear-gradient(135deg, var(--mint), #10b981);
+  border-color: rgba(0, 255, 134, .55);
+  box-shadow:
+    0 6px 20px -8px rgba(0, 255, 134, .8),
+    inset 0 1px 0 rgba(255, 255, 255, .38);
+}
+
+/* ================================================================== Grid */
+
+.lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(230px, 24vw, 290px), 1fr));
+  gap: 18px;
+  padding-block: clamp(18px, 2.4vw, 30px);
+}
+
+.game-card.is-hidden { display: none; }
+
+/* ================================================================== Card */
+
+.game-card {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--hair);
+  border-radius: var(--card-r);
+  background: var(--card-sheen), var(--card-surface);
+  box-shadow:
+    0 18px 42px -28px rgba(0, 0, 0, .96),
+    inset 0 1px 0 rgba(255, 255, 255, .05);
+  transition:
+    transform .3s var(--ease),
+    border-color .3s var(--ease),
+    box-shadow .34s var(--ease);
+}
+
+/* Accent bloom — opacity-only, so the gradient rasterises once. */
+.game-card::before {
+  content: '';
+  position: absolute;
+  inset: -34% -22% auto -22%;
+  height: 82%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .16;
+  background: radial-gradient(58% 62% at 50% 42%, var(--accent), transparent 70%);
+  transition: opacity .34s var(--ease);
+}
+
+/* Specular sweep. The transition lives on the hover/focus state only, so the
+   highlight crosses once on entry and snaps back off-card on exit — the same
+   one-way trick .btn--drop uses. */
+.game-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  transform: translateX(-135%) skewX(-14deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .11) 46%, rgba(255, 255, 255, .02) 62%, transparent);
+}
+
+.game-card:hover,
+.game-card:focus-visible {
+  transform: translateY(-6px) scale(1.015);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow:
+    0 26px 54px -26px rgba(0, 0, 0, .98),
+    0 16px 40px -24px color-mix(in srgb, var(--accent) 72%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, .09);
+}
+.game-card:hover::before,
+.game-card:focus-visible::before { opacity: .46; }
+
+.game-card:hover::after,
+.game-card:focus-visible::after {
+  transform: translateX(135%) skewX(-14deg);
+  transition: transform .78s var(--ease);
+}
+
+.game-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.game-card:active { transform: translateY(-2px) scale(.995); }
+
+/* ------------------------------------------------------------- Card art */
+
+.game-card__art {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 13px 13px 0;
+}
+
+.card-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 160 / 100;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b111e;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05);
+}
+/* One rule tones every scene that paints with currentColor. */
+.card-art { color: var(--accent); }
+
+.card-art .ca-bg { fill: #0b111e; }
+/* The scene ships the bloom as a flat <circle>, which reads as a hard disc
+   over the art. A static radial mask turns it into an actual falloff — no
+   filter, no blur pass, one raster. */
+.card-art .ca-glow {
+  fill: var(--accent);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 4%, rgba(0, 0, 0, .5) 40%, transparent 72%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 4%, rgba(0, 0, 0, .5) 40%, transparent 72%);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity .34s var(--ease), transform .5s var(--ease);
+}
+.game-card:hover .ca-glow,
+.game-card:focus-visible .ca-glow {
+  opacity: .3;
+  transform: scale(1.16);
+}
+
+/* ---------------------------------------------------------- Card content */
+
+.game-card__info {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 15px 0;
+}
+.game-card__name {
+  font-size: 15.5px;
+  font-weight: 800;
+  letter-spacing: -.012em;
+  color: var(--text);
+}
+.game-card__desc {
+  font-size: 12.3px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.game-card__foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 15px 14px;
+}
+
+.game-card__badge {
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  transition: background .28s var(--ease), border-color .28s var(--ease);
+}
+.game-card:hover .game-card__badge,
+.game-card:focus-visible .game-card__badge {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+}
+
+.game-card__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+.game-card__live .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 6px rgba(0, 255, 134, .75);
+  animation: lbLiveBlink 2.6s ease-in-out infinite;
+}
+.game-card__live em {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes lbLiveBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+
+/* ------------------------------------------------------------- CTA pill */
+
+.game-card__cta {
+  position: absolute;
+  right: 21px;
+  top: 21px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  color: var(--ink);
+  background: var(--accent);
+  box-shadow:
+    0 8px 22px -8px color-mix(in srgb, var(--accent) 90%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, .42);
+  opacity: 0;
+  transform: translateY(-7px) scale(.9);
+  transition:
+    opacity .26s var(--ease),
+    transform .32s var(--spring);
+}
+.game-card:hover .game-card__cta,
+.game-card:focus-visible .game-card__cta {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.game-card__cta .ico { color: currentColor; }
+
+/* =========================================================== Card art: 1 */
+/* Plinko — ball falls the pyramid on a loop, pegs flash as it passes.
+   Ball and pegs share one 2.8s period; the peg delays are that period
+   multiplied by the ball's keyframe stop, so the flash lands on contact. */
+
+.card-art--plinko .ca-ball {
+  animation: caPlinkoDrop 2.8s cubic-bezier(.45, .05, .55, .95) infinite;
+}
+@keyframes caPlinkoDrop {
+  0%   { transform: translate(6px, -20px); opacity: 0; }
+  6%   { transform: translate(6px, -12px); opacity: 1; }
+  12%  { transform: translate(6px, -7px); }
+  24%  { transform: translate(-6px, 7px); }
+  38%  { transform: translate(6px, 21px); }
+  52%  { transform: translate(-6px, 35px); }
+  66%  { transform: translate(6px, 52px); }
+  74%  { transform: translate(6px, 56px); }
+  88%  { transform: translate(6px, 56px); opacity: 1; }
+  96%  { transform: translate(6px, 56px); opacity: 0; }
+  100% { transform: translate(6px, -20px); opacity: 0; }
+}
+
+.card-art--plinko .ca-peg {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: .34;
+  animation: caPegFlash 2.8s ease-out infinite;
+}
+.card-art--plinko .ca-peg:nth-child(3)                        { animation-delay: .34s; }
+.card-art--plinko .ca-peg:nth-child(4),
+.card-art--plinko .ca-peg:nth-child(5)                        { animation-delay: .67s; }
+.card-art--plinko .ca-peg:nth-child(6),
+.card-art--plinko .ca-peg:nth-child(7),
+.card-art--plinko .ca-peg:nth-child(8)                        { animation-delay: 1.06s; }
+.card-art--plinko .ca-peg:nth-child(9),
+.card-art--plinko .ca-peg:nth-child(10),
+.card-art--plinko .ca-peg:nth-child(11),
+.card-art--plinko .ca-peg:nth-child(12)                       { animation-delay: 1.46s; }
+
+@keyframes caPegFlash {
+  0%        { opacity: .34; transform: scale(1); }
+  5%        { opacity: 1;   transform: scale(1.55); }
+  18%, 100% { opacity: .34; transform: scale(1); }
+}
+
+/* Secondary: payout slots ripple. Parked until hover. */
+.card-art--plinko .ca-slot {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: caSlotWave 1.9s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.card-art--plinko .ca-slot:nth-of-type(3) { animation-delay: .1s; }
+.card-art--plinko .ca-slot:nth-of-type(4) { animation-delay: .2s; }
+.card-art--plinko .ca-slot:nth-of-type(5) { animation-delay: .3s; }
+.card-art--plinko .ca-slot:nth-of-type(6) { animation-delay: .4s; }
+
+@keyframes caSlotWave {
+  0%, 100% { transform: scaleY(1); }
+  40%      { transform: scaleY(1.34); }
+}
+
+/* =========================================================== Card art: 2 */
+/* Crash — the curve draws itself with stroke-dashoffset while the orb walks
+   the same quadratic. Both run 4.2s LINEAR with matching keyframe stops, so
+   per-segment easing can never drift them apart. The orb's travel uses the
+   individual `translate` property and its bloom uses `scale`, so the two
+   animations never fight over one `transform`.
+   Path M 20 80 Q 75 76, 115 32 — sampled at t = 0/.25/.5/.75/1, arc length
+   about 109 user units, hence the 110 dasharray. */
+
+.card-art--crash .ca-curve {
+  stroke-dasharray: 110;
+  animation: caCrashDraw 4.2s linear infinite;
+}
+@keyframes caCrashDraw {
+  0%   { stroke-dashoffset: 110; opacity: 0; }
+  6%   { stroke-dashoffset: 110; opacity: 1; }
+  58%  { stroke-dashoffset: 0; }
+  86%  { stroke-dashoffset: 0;   opacity: 1; }
+  96%  { stroke-dashoffset: 0;   opacity: 0; }
+  100% { stroke-dashoffset: 110; opacity: 0; }
+}
+
+.card-art--crash .ca-orb {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    caCrashOrb 4.2s linear infinite,
+    caCrashBloom 1.15s ease-in-out infinite;
+}
+@keyframes caCrashOrb {
+  0%   { translate: -95px 48px; opacity: 0; }
+  6%   { translate: -95px 48px; opacity: 1; }
+  19%  { translate: -68.4px 43.5px; }
+  32%  { translate: -43.8px 34px; }
+  45%  { translate: -20.9px 19.5px; }
+  58%  { translate: 0 0; }
+  86%  { translate: 0 0; opacity: 1; }
+  96%  { translate: 0 0; opacity: 0; }
+  100% { translate: -95px 48px; opacity: 0; }
+}
+@keyframes caCrashBloom {
+  0%, 100% { scale: 1; }
+  50%      { scale: 1.28; }
+}
+
+.card-art--crash .ca-area { animation: caCrashArea 4.2s linear infinite; }
+@keyframes caCrashArea {
+  0%, 20% { opacity: 0; }
+  58%     { opacity: 1; }
+  86%     { opacity: 1; }
+  96%     { opacity: 0; }
+  100%    { opacity: 0; }
+}
+
+.card-art--crash .ca-grid {
+  animation: caGridBreathe 5.4s ease-in-out infinite;
+  animation-play-state: paused;
+}
+@keyframes caGridBreathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .42; }
+}
+
+/* =========================================================== Card art: 3 */
+/* Twist — three counter-rotating rings, a planet and a moon in opposed
+   orbits. Every node in this scene shares one centre (80, 50), so a single
+   user-space transform-origin covers the whole thing. Ring B is drawn solid,
+   so it gets a CSS dash pattern — otherwise its rotation is invisible. */
+
+.card-art--twist .ca-ring,
+.card-art--twist .ca-planet,
+.card-art--twist .ca-moon,
+.card-art--twist .ca-sun { transform-origin: 80px 50px; }
+
+.card-art--twist .ca-ring--a { animation: caSpin 14s linear infinite; }
+.card-art--twist .ca-ring--b {
+  stroke-dasharray: 5 4;
+  animation: caSpin 9s linear infinite reverse;
+}
+.card-art--twist .ca-ring--c { animation: caSpin 6s linear infinite; }
+
+@keyframes caSpin { to { transform: rotate(360deg); } }
+
+.card-art--twist .ca-planet {
+  animation: caSpin 7.5s linear infinite;
+  animation-play-state: paused;
+}
+.card-art--twist .ca-moon {
+  animation: caSpin 4.5s linear infinite reverse;
+  animation-play-state: paused;
+}
+.card-art--twist .ca-sun {
+  animation: caSunPulse 2.6s ease-in-out infinite;
+  animation-play-state: paused;
+}
+@keyframes caSunPulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.28); opacity: .82; }
+}
+
+/* =========================================================== Card art: 4 */
+/* Limbo — the bolt pulses on the target readout while a bright band chases
+   left to right along the rail. The band is a per-tick nudge + flare rather
+   than a bulk translate: six ticks cannot scroll off a 160-wide viewBox
+   without opening a gap at the trailing edge. */
+
+.card-art--limbo .ca-bolt {
+  transform-origin: 82px 41px;
+  animation: caBoltPulse 1.9s ease-in-out infinite;
+}
+@keyframes caBoltPulse {
+  0%, 100% { transform: scale(1);    opacity: .82; }
+  46%      { transform: scale(1.14); opacity: 1; }
+}
+
+.card-art--limbo .ca-tick {
+  animation: caTickChase 2.4s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.card-art--limbo .ca-tick:nth-of-type(3) { animation-delay: .12s; }
+.card-art--limbo .ca-tick:nth-of-type(4) { animation-delay: .24s; }
+.card-art--limbo .ca-tick:nth-of-type(5) { animation-delay: .36s; }
+.card-art--limbo .ca-tick:nth-of-type(6) { animation-delay: .48s; }
+.card-art--limbo .ca-tick:nth-of-type(7) { animation-delay: .6s; }
+
+@keyframes caTickChase {
+  0%, 100% { translate: 0 0;      opacity: 1; }
+  22%      { translate: 0 -2.5px; opacity: .35; }
+}
+
+.card-art--limbo .ca-rail,
+.card-art--limbo .ca-num { transition: opacity .3s var(--ease); }
+.card-art--limbo .ca-rail { opacity: .8; }
+.game-card:hover .card-art--limbo .ca-rail { opacity: 1; }
+
+/* =========================================================== Card art: 5 */
+/* Roulette — the strip swings under a fixed marker. It alternates instead of
+   looping one way: the slot colours are not periodic, so a wrap-around jump
+   would flicker. Masked edges turn the card into a window over the reel. */
+
+.card-art--roulette .ca-strip {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 15%, #000 85%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 15%, #000 85%, transparent 100%);
+  animation: caStripSwing 3.4s ease-in-out infinite alternate;
+}
+@keyframes caStripSwing {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-24px); }
+}
+
+.card-art--roulette .ca-slot { transition: opacity .3s var(--ease); }
+.game-card:hover .card-art--roulette .ca-slot { opacity: .82; }
+
+.card-art--roulette .ca-marker {
+  transform-origin: 80px 25px;
+  transition: transform .3s var(--spring);
+}
+.game-card:hover .card-art--roulette .ca-marker,
+.game-card:focus-visible .card-art--roulette .ca-marker { transform: translateY(3px) scale(1.15); }
+
+/* =========================================================== Card art: 6 */
+/* Pocket Dice — both dice rock. Die A's pips are siblings, not children, so
+   they carry the identical animation about the same centre (53, 49) and move
+   as one body. Die B already sits at rotate(8 107 51); its pips do not, so
+   the two keyframe sets differ by a constant 8deg and stay in lockstep. */
+
+.card-art--pocket-dice .ca-die--a,
+.card-art--pocket-dice .ca-pip:nth-of-type(-n+4) {
+  transform-origin: 53px 49px;
+  animation: caDieRockA 3.4s ease-in-out infinite;
+}
+@keyframes caDieRockA {
+  0%, 100% { transform: rotate(0deg); }
+  28%      { transform: rotate(-7deg); }
+  64%      { transform: rotate(5deg); }
+}
+
+.card-art--pocket-dice .ca-die--b {
+  transform-origin: 107px 51px;
+  transform: rotate(8deg);
+  animation: caDieRockB 3.9s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.card-art--pocket-dice .ca-pip:nth-of-type(n+5) {
+  transform-origin: 107px 51px;
+  animation: caDieRockBPips 3.9s ease-in-out infinite;
+  animation-play-state: paused;
+}
+@keyframes caDieRockB {
+  0%, 100% { transform: rotate(8deg); }
+  50%      { transform: rotate(-2deg); }
+}
+@keyframes caDieRockBPips {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-10deg); }
+}
+
+/* =========================================================== Card art: 7 */
+/* Dice — the knob sweeps the track and the fill tracks it exactly. Width is
+   never animated: the bar is scaled about its left edge (20, 60) and the
+   scale factors are solved so the fill's right edge lands on the knob's
+   centre at every stop — 20 + 75s = 95 + t. Same stops, same easing. */
+
+.card-art--dice .ca-knob,
+.card-art--dice .ca-num {
+  animation: caDiceSlide 4.6s ease-in-out infinite;
+}
+@keyframes caDiceSlide {
+  0%   { transform: translateX(0); }
+  30%  { transform: translateX(-55px); }
+  65%  { transform: translateX(35px); }
+  100% { transform: translateX(0); }
+}
+
+.card-art--dice .ca-fill {
+  transform-origin: 20px 60px;
+  animation: caDiceFill 4.6s ease-in-out infinite;
+}
+@keyframes caDiceFill {
+  0%   { transform: scaleX(1); }
+  30%  { transform: scaleX(.2667); }
+  65%  { transform: scaleX(1.4667); }
+  100% { transform: scaleX(1); }
+}
+
+.card-art--dice .ca-track { transition: opacity .3s var(--ease); }
+.game-card:hover .card-art--dice .ca-track { opacity: .68; }
+
+/* =========================================================== Card art: 8 */
+/* Hilo — the face card flips on a long cycle and the two arrows trade the
+   highlight. The flip is never parked: freezing it mid-turn would leave the
+   card at scaleX(.06), i.e. an invisible sliver. */
+
+.card-art--hilo .ca-card {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.card-art--hilo .ca-card--face { animation: caHiloFlip 6.5s ease-in-out infinite; }
+@keyframes caHiloFlip {
+  0%, 56% { transform: translateY(0) scaleX(1); }
+  66%     { transform: translateY(-5px) scaleX(.06); }
+  76%     { transform: translateY(-5px) scaleX(1); }
+  88%     { transform: translateY(0) scaleX(1); }
+  100%    { transform: translateY(0) scaleX(1); }
+}
+
+.card-art--hilo .ca-card--back {
+  animation: caHiloLift 3.6s ease-in-out infinite;
+  animation-play-state: paused;
+}
+@keyframes caHiloLift {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-4px) rotate(-3deg); }
+}
+
+.card-art--hilo .ca-arrow {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.card-art--hilo .ca-arrow--up   { animation: caArrowUp 2.8s ease-in-out infinite; }
+.card-art--hilo .ca-arrow--down { animation: caArrowDown 2.8s ease-in-out infinite -1.4s; }
+
+@keyframes caArrowUp {
+  0%, 48%, 100% { opacity: .3; transform: translateY(0) scale(.92); }
+  18%           { opacity: 1;  transform: translateY(-3px) scale(1.14); }
+}
+@keyframes caArrowDown {
+  0%, 48%, 100% { opacity: .3; transform: translateY(0) scale(.92); }
+  18%           { opacity: 1;  transform: translateY(3px) scale(1.14); }
+}
+
+/* =========================================================== Card art: 9 */
+/* Keno — the four matched tiles pop left-to-right, then the row rests for
+   most of the cycle. The eight unmatched tiles carry no animation at all;
+   they lift on hover through a transition instead. */
+
+.card-art--keno .ca-hit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: caKenoPop 3.2s ease-out infinite;
+}
+.card-art--keno .ca-hit:nth-of-type(3)  { animation-delay: 0s; }
+.card-art--keno .ca-hit:nth-of-type(5)  { animation-delay: .22s; }
+.card-art--keno .ca-hit:nth-of-type(6)  { animation-delay: .44s; }
+.card-art--keno .ca-hit:nth-of-type(12) { animation-delay: .66s; }
+
+@keyframes caKenoPop {
+  0%        { transform: scale(.86); opacity: .45; }
+  10%       { transform: scale(1.16); opacity: 1; }
+  20%       { transform: scale(1); opacity: 1; }
+  72%       { transform: scale(1); opacity: 1; }
+  88%, 100% { transform: scale(.86); opacity: .45; }
+}
+
+.card-art--keno .ca-tile { transition: opacity .3s var(--ease); }
+.game-card:hover .card-art--keno .ca-tile { opacity: .82; }
+.game-card:hover .card-art--keno .ca-hit  { opacity: 1; }
+
+/* ========================================================== Card art: 10 */
+/* Mines — the live mine keeps a slow red pulse; the two gems shimmer only
+   while the card is hovered. The nine cells are transition-only. */
+
+.card-art--mines .ca-mine {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: caMinePulse 1.7s ease-in-out infinite;
+}
+@keyframes caMinePulse {
+  0%, 100% { transform: scale(1);    opacity: .78; }
+  50%      { transform: scale(1.16); opacity: 1; }
+}
+
+.card-art--mines .ca-gem {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: caGemShimmer 2.3s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.card-art--mines .ca-gem:nth-of-type(2) { animation-delay: .5s; }
+
+@keyframes caGemShimmer {
+  0%, 100% { transform: scale(1) rotate(0deg);    opacity: 1; }
+  50%      { transform: scale(1.22) rotate(45deg); opacity: .72; }
+}
+
+.card-art--mines .ca-cell { transition: opacity .3s var(--ease); }
+.game-card:hover .card-art--mines .ca-cell { opacity: .78; }
+
+/* ========================================================== Card art: 11 */
+/* Blackjack — the three cards fan on hover. Each already carries a
+   rotate(a cx cy) attribute, so the base rule restates that rotation in CSS
+   against an explicit user-space origin: identical pose, but now a single
+   `transform` the hover state can extend without the attribute fighting it. */
+
+.card-art--blackjack .ca-card { transition: transform .42s var(--spring); }
+.card-art--blackjack .ca-card--a { transform-origin: 55px 45px; transform: rotate(-12deg); }
+.card-art--blackjack .ca-card--b { transform-origin: 80px 42px; }
+.card-art--blackjack .ca-card--c { transform-origin: 105px 45px; transform: rotate(12deg); }
+
+.game-card:hover .card-art--blackjack .ca-card--a,
+.game-card:focus-visible .card-art--blackjack .ca-card--a { transform: translate(-8px, 3px) rotate(-24deg); }
+.game-card:hover .card-art--blackjack .ca-card--b,
+.game-card:focus-visible .card-art--blackjack .ca-card--b { transform: translateY(-6px); }
+.game-card:hover .card-art--blackjack .ca-card--c,
+.game-card:focus-visible .card-art--blackjack .ca-card--c { transform: translate(8px, 3px) rotate(24deg); }
+
+.card-art--blackjack .ca-chip {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: caChipStack 2.4s ease-in-out infinite;
+}
+.card-art--blackjack .ca-chip--2 { animation-delay: -1.2s; }
+
+@keyframes caChipStack {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-5px) scale(1.07); }
+}
+
+.card-art--blackjack .ca-num { transition: opacity .3s var(--ease); }
+.card-art--blackjack .ca-num { opacity: .75; }
+.game-card:hover .card-art--blackjack .ca-num { opacity: 1; }
+
+/* ------------------------------------------------- Resume parked motion */
+/* (0,3,0) — declared last so it outranks every scene rule above, including
+   the few that also reach (0,3,0). */
+
+.game-card:hover .card-art *,
+.game-card:focus-visible .card-art * { animation-play-state: running; }
+
+/* =========================================================== Empty state */
+
+.lobby-empty {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-block: clamp(20px, 4vw, 46px);
+  padding: clamp(28px, 5vw, 52px) 24px;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, .17);
+  border-radius: var(--card-r);
+  background: var(--card-sheen), rgba(16, 23, 34, .72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+.lobby-empty.is-visible { display: flex; }
+.lobby-empty p {
+  max-width: 34ch;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ================================================================= Foot */
+
+.lobby-foot {
+  padding-top: clamp(16px, 2.6vw, 30px);
+  border-top: 1px solid var(--hair);
+}
+.lobby-foot p {
+  max-width: 76ch;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+/* ========================================================== Responsive */
+
+@media (max-width: 1200px) {
+  .lobby-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+    gap: clamp(18px, 3vw, 40px);
+  }
+  .lobby-grid { gap: 16px; }
+}
+
+@media (max-width: 980px) {
+  .lobby-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: clamp(22px, 5vw, 40px) clamp(16px, 3vw, 26px);
+  }
+  .lobby-hero__art { display: none; }
+  .lobby-hero__sub { max-width: 60ch; }
+}
+
+@media (max-width: 720px) {
+  .lobby > .lobby-toolbar {
+    /* The topbar stops being a single row here, so pinning the toolbar under
+       a moving offset just makes it jitter. */
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .lobby-toolbar::before { border-bottom: 0; }
+  /* The toolbar's main axis is now vertical, so the search field's
+     `flex-basis: 240px` would resolve as a 240px-tall gap around the input. */
+  .lobby-search {
+    flex: none;
+    max-width: none;
+  }
+  .lobby-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lobby-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lobby-hero__actions .btn--lg { flex: 1 1 auto; }
+  /* The lobby is the only way back to the games once .game-nav starts
+     scrolling, so the home button must survive every narrow breakpoint. */
+  body[data-route="game"] #btn-home { display: inline-flex; }
+}
+
+@media (max-width: 520px) {
+  .lobby { padding-block: 6px clamp(24px, 8vw, 44px); }
+  .lobby-hero__title { letter-spacing: -.028em; }
+  .lobby-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .game-card__cta {
+    right: 18px;
+    top: 18px;
+    opacity: 1;
+    transform: none;
+  }
+  .lobby__orb { filter: blur(64px); }
+}
+
+/* ====================================================== Reduced motion */
+/* Every animation and transition this file introduces is switched off here.
+   The `#lobby` prefix carries an id, so it outranks the (0,3,0) hover rules
+   above on specificity alone. Base transforms that ARE the artwork —
+   the tilted die, the fanned blackjack hand — are restated, not zeroed. */
+
+@media (prefers-reduced-motion: reduce) {
+  #lobby,
+  #lobby *,
+  #lobby *::before,
+  #lobby *::after,
+  #btn-home,
+  #btn-home::before,
+  #btn-home::after {
+    animation: none;
+    transition: none;
+  }
+
+  /* Hover/active lifts collapse to the resting pose. */
+  #lobby .game-card,
+  #lobby .game-card:hover,
+  #lobby .game-card:focus-visible,
+  #lobby .game-card:active { transform: none; }
+  #lobby .lobby-filter:hover { transform: none; }
+  #btn-home:hover,
+  #btn-home:active { transform: none; }
+
+  /* The specular sweep exists only to travel — drop it entirely. */
+  #lobby .game-card::after { display: none; }
+
+  /* Motion carried the CTA in, so without motion it is simply always there. */
+  #lobby .game-card__cta {
+    opacity: 1;
+    transform: none;
+  }
+
+  #lobby .card-art .ca-glow { transform: none; }
+  #lobby .card-art--plinko .ca-peg { opacity: .9; }
+  #lobby .card-art--roulette .ca-marker { transform: none; }
+
+  /* Restated authored poses — these are the drawing, not the animation. */
+  #lobby .card-art--pocket-dice .ca-die--b { transform: rotate(8deg); }
+  #lobby .card-art--blackjack .ca-card--a { transform: rotate(-12deg); }
+  #lobby .card-art--blackjack .ca-card--b { transform: none; }
+  #lobby .card-art--blackjack .ca-card--c { transform: rotate(12deg); }
+}

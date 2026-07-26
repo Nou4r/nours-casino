@@ -1,0 +1,14 @@
+# Local-only reference material — contains a live session cookie jar. Never commit.
+cookies.txt
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Nothing is built or installed here, but keep strays out anyway.
+node_modules/
+dist/
+*.log

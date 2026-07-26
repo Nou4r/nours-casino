@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="description" content="Nour's Casino — an 11-game provably fair casino suite featuring Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice, Dice, Hilo, Keno, Mines, and Blackjack." />
+<title>Nour's Casino &middot; Provably Fair Originals</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="css/gamdom.css" />
+<link rel="stylesheet" href="css/lobby.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2300ff86' d='M8.7 1H23.3Q27.4 1 28.03 5.1L31.59 28.3Q32 31 29.3 31H2.7Q0 31 .41 28.3L3.97 5.1Q4.6 1 8.7 1Z'/%3E%3Cpath fill='%23071018' d='M5.58 26.2L6.54 6.6H12.04L20.48 17.18 19.96 6.6H25.46L26.42 26.2H20.92L11.65 14.57 11.08 26.2Z'/%3E%3C/svg%3E" />
+</head>
+<body data-route="lobby">
+
+<!-- ============================= SVG ICON SPRITE ============================= -->
+<svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true" focusable="false">
+  <!-- Brand mark: the Plinko field seen head-on — narrow at the drop gate, splaying
+       out to the payout row — with the N cut straight through it as one even-odd
+       hole, so the mark is a single shape in a single colour. Ids are logo-prefixed
+       because a duplicate id anywhere in this document breaks paint. -->
+  <symbol id="i-logo" viewBox="0 0 32 32"><defs><linearGradient id="logoGrad" gradientUnits="userSpaceOnUse" x1="8" y1="1.5" x2="24" y2="30.5"><stop offset="0" stop-color="#b7ffe6" /><stop offset=".18" stop-color="#4dffae" /><stop offset=".52" stop-color="#00ff86" /><stop offset="1" stop-color="#07b06d" /></linearGradient></defs><path fill="url(#logoGrad)" fill-rule="evenodd" d="M9.2 1.9H22.8Q26.6 1.9 27.27 5.7L31.14 27.5Q31.6 30.1 29 30.1H3Q.4 30.1 .86 27.5L4.73 5.7Q5.4 1.9 9.2 1.9ZM6.04 25.6L7.1 7H12.1L20.49 17.4 19.9 7H24.9L25.96 25.6H20.96L11.69 14.13 11.04 25.6Z" /></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1" /><path d="M3 7.5V17a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2.5" /><path d="M21 9.5h-4.5a2.5 2.5 0 0 0 0 5H21z" /></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10" /><path d="M10 20V4" /><path d="M16 20v-7" /><path d="M22 20H2" /></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.2c0 4.6-3.1 8.6-7.5 9.8-4.4-1.2-7.5-5.2-7.5-9.8V6z" /><path d="M9.2 12.2l2 2 3.6-3.8" /></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" /><path d="M16.2 9a4.2 4.2 0 0 1 0 6" /><path d="M18.8 6.4a7.8 7.8 0 0 1 0 11.2" /></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" /><path d="M16.5 9.8l4.5 4.4" /><path d="M21 9.8l-4.5 4.4" /></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.7 4.3" /><path d="M20 4.5V11h-6.2" /></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.2" /><path d="M5.5 15H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v.5" /></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7" /></symbol>
+  <symbol id="i-dice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4" /><circle cx="8.6" cy="8.6" r="1.35" fill="currentColor" stroke="none" /><circle cx="15.4" cy="15.4" r="1.35" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none" /></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13.5 2.5L5 13.6h5.4L9.8 21.5 19 10.3h-5.6z" /></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V4.8a1.4 1.4 0 0 1 2.8 0V11" /><path d="M11.8 10.6V3.6a1.4 1.4 0 0 1 2.8 0v7" /><path d="M14.6 11V6.2a1.4 1.4 0 0 1 2.8 0V14c0 3.9-2.3 7-6.2 7-2.6 0-4.2-1.2-5.3-3.4L4 13.4a1.5 1.5 0 0 1 2.5-1.6L9 15" /></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5" /><path d="M6 9.5h.01M9.5 9.5h.01M13 9.5h.01M16.5 9.5h.01M6 13h.01M18 13h.01M9.5 15.8h5" /></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16.5l5.5-5.5 3.5 3.5L21 5" /><path d="M15.5 5H21v5.5" /></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 5.5H4.5V7A3.5 3.5 0 0 0 8 10.5" /><path d="M17 5.5h2.5V7A3.5 3.5 0 0 1 16 10.5" /><path d="M12 14v3.5" /><path d="M8.5 20.5h7l-.8-3h-5.4z" /></symbol>
+  <symbol id="i-coins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9" cy="7" rx="6" ry="2.8" /><path d="M3 7v4.2c0 1.6 2.7 2.8 6 2.8s6-1.2 6-2.8V7" /><path d="M15 10.4c2.9.3 5 1.4 5 2.7v4c0 1.6-2.7 2.8-6 2.8-2.6 0-4.8-.7-5.7-1.8" /><path d="M3 11.2v4.3C3 17 5.7 18.2 9 18.2h.4" /></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" /></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4.35-4.35" /></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8.9" /><path d="M17.1 7H20" /><path d="M4 17h2.9" /><path d="M11.1 17H20" /><circle cx="15" cy="7" r="2.1" /><circle cx="9" cy="17" r="2.1" /></symbol>
+</svg>
+
+<!-- ================================ TOP BAR ================================ -->
+<header class="topbar" role="banner">
+  <div class="topbar__inner">
+
+    <a class="brand" href="#/" aria-label="Nour's Casino home">
+      <span class="brand__mark" aria-hidden="true"><svg class="ico" width="22" height="22"><use href="#i-logo" /></svg></span>
+      <span class="brand__text">
+        <b>NOUR'S</b>
+        <i id="current-game-title">Casino</i>
+      </span>
+    </a>
+
+    <button type="button" class="btn btn--ghost btn--icon home-btn" id="btn-home" title="Back to lobby" aria-label="Back to lobby"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-grid" /></svg></button>
+
+    <nav class="game-nav" aria-label="Select Game">
+      <button type="button" class="game-tab is-active" data-game="plinko"><svg class="ico" width="16" height="16"><use href="#i-target" /></svg> Plinko</button>
+      <button type="button" class="game-tab" data-game="crash"><svg class="ico" width="16" height="16"><use href="#i-trend" /></svg> Crash</button>
+      <button type="button" class="game-tab" data-game="twist"><svg class="ico" width="16" height="16"><use href="#i-dice" /></svg> Twist</button>
+      <button type="button" class="game-tab" data-game="limbo"><svg class="ico" width="16" height="16"><use href="#i-bolt" /></svg> Limbo</button>
+      <button type="button" class="game-tab" data-game="roulette"><svg class="ico" width="16" height="16"><use href="#i-coins" /></svg> Roulette</button>
+      <button type="button" class="game-tab" data-game="pocket-dice"><svg class="ico" width="16" height="16"><use href="#i-dice" /></svg> Pocket Dice</button>
+      <button type="button" class="game-tab" data-game="dice"><svg class="ico" width="16" height="16"><use href="#i-dice" /></svg> Dice</button>
+      <button type="button" class="game-tab" data-game="hilo"><svg class="ico" width="16" height="16"><use href="#i-trend" /></svg> Hilo</button>
+      <button type="button" class="game-tab" data-game="keno"><svg class="ico" width="16" height="16"><use href="#i-chart" /></svg> Keno</button>
+      <button type="button" class="game-tab" data-game="mines"><svg class="ico" width="16" height="16"><use href="#i-shield" /></svg> Mines</button>
+      <button type="button" class="game-tab" data-game="blackjack"><svg class="ico" width="16" height="16"><use href="#i-trophy" /></svg> Blackjack</button>
+    </nav>
+
+    <div class="wallet" title="Your play-money balance">
+      <svg class="ico wallet__ico" width="18" height="18" aria-hidden="true"><use href="#i-wallet" /></svg>
+      <span class="wallet__meta">
+        <small>Balance</small>
+        <strong id="balance-display" class="wallet__amount">$1,000.00</strong>
+      </span>
+      <button type="button" class="btn btn--mint btn--sm" id="btn-deposit" title="Add $1,000 to your balance">
+        <svg class="ico" width="14" height="14" aria-hidden="true"><use href="#i-plus" /></svg>
+        <span>Deposit</span>
+      </button>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-cheat" title="Toggle cheat mode" aria-label="Toggle cheat mode" aria-pressed="false">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-eye" /></svg>
+      </button>
+      <button type="button" class="btn btn--ghost btn--sm" id="btn-account" title="Player profile" aria-label="Player profile" aria-haspopup="dialog" aria-controls="modal-account">
+        <span class="acct-dot" id="acct-dot" aria-hidden="true"></span>
+        <span class="acct-name" id="acct-name">Guest</span>
+      </button>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-custom" title="Customize balance, house edge and limits" aria-label="Customize balance, house edge and limits">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-sliders" /></svg>
+      </button>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-reset" title="Reset balance, stats and history" aria-label="Reset session">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-refresh" /></svg>
+      </button>
+    </div>
+
+    <nav class="topbar__actions" aria-label="Game tools">
+      <button type="button" class="btn btn--ghost" id="btn-stats" aria-haspopup="dialog" aria-controls="modal-stats">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-chart" /></svg>
+        <span class="btn__label">Live Stats</span>
+      </button>
+      <button type="button" class="btn btn--ghost" id="btn-fair" aria-haspopup="dialog" aria-controls="modal-fair">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-shield" /></svg>
+        <span class="btn__label">Provably Fair</span>
+      </button>
+      <button type="button" class="btn btn--ghost btn--icon" id="btn-mute" aria-pressed="false" title="Mute sound (M)" aria-label="Mute sound">
+        <svg class="ico ico--on" width="17" height="17" aria-hidden="true"><use href="#i-volume" /></svg>
+        <svg class="ico ico--off" width="17" height="17" aria-hidden="true"><use href="#i-mute" /></svg>
+      </button>
+    </nav>
+
+  </div>
+</header>
+
+<!-- ================================= LOBBY ================================= -->
+<section id="lobby" class="lobby" aria-label="Game lobby">
+  <div class="lobby__bg" aria-hidden="true">
+    <span class="lobby__orb lobby__orb--a"></span>
+    <span class="lobby__orb lobby__orb--b"></span>
+    <span class="lobby__orb lobby__orb--c"></span>
+  </div>
+
+  <div class="lobby-hero">
+    <div class="lobby-hero__copy">
+      <div class="lobby-hero__eyebrow"><span>Provably Fair Originals</span></div>
+      <h1 class="lobby-hero__title">Nour's <em>Casino</em></h1>
+      <p class="lobby-hero__sub">Eleven instant, provably fair casino games with real-time physics and transparent odds.</p>
+      <div class="lobby-hero__actions">
+        <button id="lobby-play-featured" class="btn btn--mint btn--lg" data-game="plinko">Play Plinko <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-bolt" /></svg></button>
+        <button id="lobby-open-fair" class="btn btn--ghost btn--lg">Provably Fair <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-shield" /></svg></button>
+      </div>
+      <dl class="lobby-stats">
+        <div class="lobby-stat">
+          <dt>Play Balance</dt>
+          <dd id="lobby-stat-balance">$1,000.00</dd>
+        </div>
+        <div class="lobby-stat">
+          <dt>Original Games</dt>
+          <dd id="lobby-stat-games">11</dd>
+        </div>
+        <div class="lobby-stat">
+          <dt>Total Bets</dt>
+          <dd id="lobby-stat-bets">0</dd>
+        </div>
+        <div class="lobby-stat">
+          <dt>Best Win</dt>
+          <dd id="lobby-stat-best">$0.00</dd>
+        </div>
+      </dl>
+    </div>
+    <div class="lobby-hero__art">
+      <svg class="hero-art" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
+        <circle class="ha-ring ha-ring--1" cx="100" cy="100" r="85" fill="none" stroke="rgba(0,255,134,0.15)" stroke-width="1.5" stroke-dasharray="6 4" />
+        <circle class="ha-ring ha-ring--2" cx="100" cy="100" r="65" fill="none" stroke="rgba(56,189,248,0.2)" stroke-width="1.5" />
+        <circle class="ha-ring ha-ring--3" cx="100" cy="100" r="45" fill="none" stroke="rgba(168,85,247,0.25)" stroke-width="1.5" stroke-dasharray="4 3" />
+        <g class="ha-coin ha-coin--1" transform="translate(60,60)">
+          <circle cx="0" cy="0" r="14" fill="#00ff86" opacity="0.9" />
+          <text x="0" y="4" font-family="Inter, sans-serif" font-weight="900" font-size="12" fill="#070b12" text-anchor="middle">N</text>
+        </g>
+        <g class="ha-coin ha-coin--2" transform="translate(140,80)">
+          <circle cx="0" cy="0" r="11" fill="#f59e0b" opacity="0.85" />
+          <text x="0" y="4" font-family="Inter, sans-serif" font-weight="900" font-size="10" fill="#070b12" text-anchor="middle">7</text>
+        </g>
+        <g class="ha-coin ha-coin--3" transform="translate(95,145)">
+          <circle cx="0" cy="0" r="12" fill="#a855f7" opacity="0.85" />
+          <text x="0" y="4" font-family="Inter, sans-serif" font-weight="900" font-size="11" fill="#ffffff" text-anchor="middle">★</text>
+        </g>
+        <circle class="ha-spark ha-spark--1" cx="40" cy="110" r="2" fill="#00ff86" />
+        <circle class="ha-spark ha-spark--2" cx="160" cy="130" r="2.5" fill="#38bdf8" />
+        <circle class="ha-spark ha-spark--3" cx="120" cy="35" r="1.5" fill="#facc15" />
+        <circle class="ha-spark ha-spark--4" cx="75" cy="25" r="2" fill="#f472b6" />
+        <circle class="ha-spark ha-spark--5" cx="165" cy="50" r="1.5" fill="#00ff86" />
+        <circle class="ha-spark ha-spark--6" cx="30" cy="65" r="2" fill="#a855f7" />
+      </svg>
+    </div>
+  </div>
+
+  <div class="lobby-toolbar">
+    <div class="lobby-search">
+      <svg class="ico lobby-search__ico" width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-search" /></svg>
+      <input id="lobby-search" class="input" type="search" placeholder="Search games" aria-label="Search games" />
+    </div>
+    <div class="lobby-filters" role="tablist" aria-label="Game categories">
+      <button type="button" class="lobby-filter is-active" data-filter="all">All</button>
+      <button type="button" class="lobby-filter" data-filter="popular">Popular</button>
+      <button type="button" class="lobby-filter" data-filter="instant">Instant</button>
+      <button type="button" class="lobby-filter" data-filter="cards">Cards</button>
+      <button type="button" class="lobby-filter" data-filter="multiplier">Multiplier</button>
+    </div>
+  </div>
+
+  <div id="lobby-grid" class="lobby-grid">
+    <button type="button" class="game-card" data-game="plinko" data-tags="popular instant multiplier" data-name="Plinko" style="--accent:#00ff86">
+      <span class="game-card__art">
+        <svg class="card-art card-art--plinko" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="45" r="40" fill="#00ff86" opacity="0.12" />
+          <circle class="ca-peg" cx="80" cy="20" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="68" cy="34" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="92" cy="34" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="56" cy="48" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="80" cy="48" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="104" cy="48" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="44" cy="62" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="68" cy="62" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="92" cy="62" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-peg" cx="116" cy="62" r="2" fill="#ffffff" opacity="0.9" />
+          <circle class="ca-ball" cx="74" cy="27" r="4" fill="#00ff86" />
+          <rect class="ca-slot" x="34" y="78" width="16" height="10" rx="2" fill="#ef4444" opacity="0.8" />
+          <rect class="ca-slot" x="54" y="78" width="16" height="10" rx="2" fill="#f59e0b" opacity="0.8" />
+          <rect class="ca-slot" x="74" y="78" width="16" height="10" rx="2" fill="#00ff86" opacity="0.9" />
+          <rect class="ca-slot" x="94" y="78" width="16" height="10" rx="2" fill="#f59e0b" opacity="0.8" />
+          <rect class="ca-slot" x="114" y="78" width="16" height="10" rx="2" fill="#ef4444" opacity="0.8" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Plinko</span>
+        <span class="game-card__desc">Drop a ball down the peg pyramid.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">1000×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,420</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="crash" data-tags="popular multiplier" data-name="Crash" style="--accent:#f59e0b">
+      <span class="game-card__art">
+        <svg class="card-art card-art--crash" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="ca-crash-area-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.4" />
+              <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="110" cy="35" r="45" fill="#f59e0b" opacity="0.15" />
+          <path class="ca-grid" d="M 20 80 H 140 M 20 60 H 140 M 20 40 H 140 M 40 20 V 85 M 80 20 V 85 M 120 20 V 85" stroke="rgba(255,255,255,0.07)" stroke-width="1" />
+          <path class="ca-area" d="M 20 80 Q 75 76, 115 32 L 115 80 Z" fill="url(#ca-crash-area-grad)" />
+          <path class="ca-curve" d="M 20 80 Q 75 76, 115 32" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+          <circle class="ca-orb" cx="115" cy="32" r="5" fill="#ffffff" stroke="#f59e0b" stroke-width="2" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Crash</span>
+        <span class="game-card__desc">Cash out before the curve busts.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">100×+</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,890</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="twist" data-tags="multiplier" data-name="Twist" style="--accent:#a855f7">
+      <span class="game-card__art">
+        <svg class="card-art card-art--twist" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#a855f7" opacity="0.15" />
+          <circle class="ca-ring ca-ring--a" cx="80" cy="50" r="35" fill="none" stroke="#a855f7" stroke-width="2" stroke-dasharray="6 3" />
+          <circle class="ca-ring ca-ring--b" cx="80" cy="50" r="24" fill="none" stroke="rgba(168,85,247,0.6)" stroke-width="1.5" />
+          <circle class="ca-ring ca-ring--c" cx="80" cy="50" r="14" fill="none" stroke="rgba(168,85,247,0.4)" stroke-width="1.5" stroke-dasharray="4 2" />
+          <circle class="ca-sun" cx="80" cy="50" r="6" fill="#a855f7" />
+          <circle class="ca-planet" cx="105" cy="50" r="4" fill="#d8b4fe" />
+          <circle class="ca-moon" cx="60" cy="50" r="2.5" fill="#ffffff" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Twist</span>
+        <span class="game-card__desc">Three orbital rings, one payout.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">50×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>840</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="limbo" data-tags="instant multiplier" data-name="Limbo" style="--accent:#38bdf8">
+      <span class="game-card__art">
+        <svg class="card-art card-art--limbo" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="45" r="40" fill="#38bdf8" opacity="0.15" />
+          <line class="ca-rail" x1="20" y1="76" x2="140" y2="76" stroke="rgba(255,255,255,0.2)" stroke-width="2" stroke-linecap="round" />
+          <line class="ca-tick" x1="20" y1="72" x2="20" y2="80" stroke="#38bdf8" stroke-width="2" />
+          <line class="ca-tick" x1="44" y1="73" x2="44" y2="79" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+          <line class="ca-tick" x1="68" y1="73" x2="68" y2="79" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+          <line class="ca-tick" x1="92" y1="73" x2="92" y2="79" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+          <line class="ca-tick" x1="116" y1="73" x2="116" y2="79" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+          <line class="ca-tick" x1="140" y1="72" x2="140" y2="80" stroke="#38bdf8" stroke-width="2" />
+          <path class="ca-bolt" d="M84 16 L68 44 H82 L76 66 L96 36 H82 Z" fill="#38bdf8" />
+          <text class="ca-num" x="80" y="46" font-family="Roboto Mono, monospace" font-size="13" font-weight="800" fill="#ffffff" text-anchor="middle">x9.42</text>
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Limbo</span>
+        <span class="game-card__desc">Set a target, beat the roll.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">1000×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,120</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="roulette" data-tags="popular instant" data-name="Roulette" style="--accent:#fb7185">
+      <span class="game-card__art">
+        <svg class="card-art card-art--roulette" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#fb7185" opacity="0.15" />
+          <polygon class="ca-marker" points="80,30 73,20 87,20" fill="#fb7185" />
+          <g class="ca-strip">
+            <rect class="ca-slot" x="12" y="36" width="12" height="28" rx="2" fill="#ef4444" />
+            <rect class="ca-slot" x="27" y="36" width="12" height="28" rx="2" fill="#1e293b" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+            <rect class="ca-slot" x="42" y="36" width="12" height="28" rx="2" fill="#ef4444" />
+            <rect class="ca-slot" x="57" y="36" width="12" height="28" rx="2" fill="#1e293b" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+            <rect class="ca-slot" x="72" y="36" width="16" height="32" rx="2" fill="#10b981" stroke="#ffffff" stroke-width="1.5" />
+            <rect class="ca-slot" x="91" y="36" width="12" height="28" rx="2" fill="#ef4444" />
+            <rect class="ca-slot" x="106" y="36" width="12" height="28" rx="2" fill="#1e293b" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+            <rect class="ca-slot" x="121" y="36" width="12" height="28" rx="2" fill="#ef4444" />
+            <rect class="ca-slot" x="136" y="36" width="12" height="28" rx="2" fill="#1e293b" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+          </g>
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Roulette</span>
+        <span class="game-card__desc">Fifteen slots on a spinning strip.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">20×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,650</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="pocket-dice" data-tags="instant" data-name="Pocket Dice" style="--accent:#34d399">
+      <span class="game-card__art">
+        <svg class="card-art card-art--pocket-dice" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#34d399" opacity="0.15" />
+          <rect class="ca-die ca-die--a" x="34" y="30" width="38" height="38" rx="6" fill="#1e293b" stroke="#34d399" stroke-width="2" />
+          <circle class="ca-pip" cx="43" cy="39" r="2.5" fill="#34d399" />
+          <circle class="ca-pip" cx="53" cy="49" r="2.5" fill="#34d399" />
+          <circle class="ca-pip" cx="63" cy="59" r="2.5" fill="#34d399" />
+          <rect class="ca-die ca-die--b" x="88" y="32" width="38" height="38" rx="6" fill="#1e293b" stroke="#34d399" stroke-width="2" transform="rotate(8 107 51)" />
+          <circle class="ca-pip" cx="97" cy="41" r="2.5" fill="#ffffff" />
+          <circle class="ca-pip" cx="117" cy="41" r="2.5" fill="#ffffff" />
+          <circle class="ca-pip" cx="97" cy="61" r="2.5" fill="#ffffff" />
+          <circle class="ca-pip" cx="117" cy="61" r="2.5" fill="#ffffff" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Pocket Dice</span>
+        <span class="game-card__desc">Fast over/under, one tap.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">99×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>760</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="dice" data-tags="instant" data-name="Dice" style="--accent:#60a5fa">
+      <span class="game-card__art">
+        <svg class="card-art card-art--dice" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="95" cy="50" r="40" fill="#60a5fa" opacity="0.15" />
+          <rect class="ca-track" x="20" y="56" width="120" height="8" rx="4" fill="rgba(255,255,255,0.1)" />
+          <rect class="ca-fill" x="20" y="56" width="75" height="8" rx="4" fill="#60a5fa" />
+          <circle class="ca-knob" cx="95" cy="60" r="9" fill="#ffffff" stroke="#60a5fa" stroke-width="3" />
+          <text class="ca-num" x="95" y="38" font-family="Roboto Mono, monospace" font-size="15" font-weight="800" fill="#60a5fa" text-anchor="middle">50.00</text>
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Dice</span>
+        <span class="game-card__desc">Slide the line, roll to win.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">99×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,210</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="hilo" data-tags="cards" data-name="Hilo" style="--accent:#f472b6">
+      <span class="game-card__art">
+        <svg class="card-art card-art--hilo" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#f472b6" opacity="0.15" />
+          <g class="ca-card ca-card--back">
+            <rect x="42" y="24" width="34" height="48" rx="4" fill="#1e293b" stroke="rgba(244,114,182,0.5)" stroke-width="1.5" />
+            <path d="M46 28 L72 68 M72 28 L46 68" stroke="rgba(244,114,182,0.25)" stroke-width="1" />
+          </g>
+          <g class="ca-card ca-card--face">
+            <rect x="84" y="24" width="34" height="48" rx="4" fill="#ffffff" stroke="#f472b6" stroke-width="1.5" />
+            <text x="101" y="54" font-family="Inter, sans-serif" font-weight="800" font-size="20" fill="#f472b6" text-anchor="middle">K</text>
+          </g>
+          <path class="ca-arrow ca-arrow--up" d="M28 40 L28 26 M24 30 L28 26 L32 30" stroke="#f472b6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+          <path class="ca-arrow ca-arrow--down" d="M132 56 L132 70 M128 66 L132 70 L136 66" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Hilo</span>
+        <span class="game-card__desc">Higher or lower — stack the streak.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">Streak</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>930</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="keno" data-tags="instant" data-name="Keno" style="--accent:#facc15">
+      <span class="game-card__art">
+        <svg class="card-art card-art--keno" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#facc15" opacity="0.15" />
+          <rect class="ca-tile" x="32" y="22" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile ca-hit" x="56" y="22" width="20" height="18" rx="3" fill="#facc15" stroke="#ffffff" stroke-width="1.5" />
+          <rect class="ca-tile" x="80" y="22" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile ca-hit" x="104" y="22" width="20" height="18" rx="3" fill="#facc15" stroke="#ffffff" stroke-width="1.5" />
+          <rect class="ca-tile ca-hit" x="32" y="44" width="20" height="18" rx="3" fill="#facc15" stroke="#ffffff" stroke-width="1.5" />
+          <rect class="ca-tile" x="56" y="44" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile" x="80" y="44" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile" x="104" y="44" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile" x="32" y="66" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile" x="56" y="66" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+          <rect class="ca-tile ca-hit" x="80" y="66" width="20" height="18" rx="3" fill="#facc15" stroke="#ffffff" stroke-width="1.5" />
+          <rect class="ca-tile" x="104" y="66" width="20" height="18" rx="3" fill="#1e293b" stroke="rgba(250,204,21,0.3)" stroke-width="1" />
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Keno</span>
+        <span class="game-card__desc">Pick ten, match the draw.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">1000×</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,050</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="mines" data-tags="popular" data-name="Mines" style="--accent:#fb923c">
+      <span class="game-card__art">
+        <svg class="card-art card-art--mines" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#fb923c" opacity="0.15" />
+          <rect class="ca-cell" x="42" y="18" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="69" y="18" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="96" y="18" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="42" y="44" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="69" y="44" width="22" height="22" rx="4" fill="#064e3b" stroke="#34d399" stroke-width="1.5" />
+          <rect class="ca-cell" x="96" y="44" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="42" y="70" width="22" height="22" rx="4" fill="#064e3b" stroke="#34d399" stroke-width="1.5" />
+          <rect class="ca-cell" x="69" y="70" width="22" height="22" rx="4" fill="#1e293b" stroke="rgba(251,146,60,0.3)" stroke-width="1" />
+          <rect class="ca-cell" x="96" y="70" width="22" height="22" rx="4" fill="#451a03" stroke="#ef4444" stroke-width="1.5" />
+          <polygon class="ca-gem" points="80,49 85,55 80,61 75,55" fill="#34d399" />
+          <polygon class="ca-gem" points="53,75 58,81 53,87 48,81" fill="#34d399" />
+          <g class="ca-mine">
+            <circle cx="107" cy="81" r="5" fill="#ef4444" />
+            <line x1="107" y1="74" x2="107" y2="88" stroke="#ef4444" stroke-width="1.5" />
+            <line x1="100" y1="81" x2="114" y2="81" stroke="#ef4444" stroke-width="1.5" />
+          </g>
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Mines</span>
+        <span class="game-card__desc">Dodge the mines, bank the gems.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">24 Tiles</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>2,100</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+
+    <button type="button" class="game-card" data-game="blackjack" data-tags="cards popular" data-name="Blackjack" style="--accent:#22d3ee">
+      <span class="game-card__art">
+        <svg class="card-art card-art--blackjack" viewBox="0 0 160 100" aria-hidden="true" focusable="false">
+          <rect class="ca-bg" width="160" height="100" rx="8" fill="#0b111e" />
+          <circle class="ca-glow" cx="80" cy="50" r="40" fill="#22d3ee" opacity="0.15" />
+          <g class="ca-card ca-card--a" transform="rotate(-12 55 45)">
+            <rect x="38" y="18" width="34" height="48" rx="4" fill="#ffffff" stroke="#22d3ee" stroke-width="1.5" />
+            <text x="55" y="48" font-family="Inter, sans-serif" font-weight="800" font-size="18" fill="#0f172a" text-anchor="middle">A</text>
+          </g>
+          <g class="ca-card ca-card--b" transform="rotate(0 80 42)">
+            <rect x="63" y="14" width="34" height="48" rx="4" fill="#ffffff" stroke="#22d3ee" stroke-width="1.5" />
+            <text x="80" y="44" font-family="Inter, sans-serif" font-weight="800" font-size="18" fill="#ef4444" text-anchor="middle">10</text>
+          </g>
+          <g class="ca-card ca-card--c" transform="rotate(12 105 45)">
+            <rect x="88" y="18" width="34" height="48" rx="4" fill="#ffffff" stroke="#22d3ee" stroke-width="1.5" />
+            <text x="105" y="48" font-family="Inter, sans-serif" font-weight="800" font-size="18" fill="#0f172a" text-anchor="middle">J</text>
+          </g>
+          <circle class="ca-chip ca-chip--1" cx="44" cy="74" r="10" fill="#22d3ee" stroke="#ffffff" stroke-dasharray="4 2" stroke-width="1.5" />
+          <circle class="ca-chip ca-chip--2" cx="116" cy="74" r="10" fill="#f472b6" stroke="#ffffff" stroke-dasharray="4 2" stroke-width="1.5" />
+          <text class="ca-num" x="80" y="82" font-family="Roboto Mono, monospace" font-size="14" font-weight="800" fill="#22d3ee" text-anchor="middle">21</text>
+        </svg>
+      </span>
+      <span class="game-card__info">
+        <span class="game-card__name">Blackjack</span>
+        <span class="game-card__desc">Beat the dealer to twenty-one.</span>
+      </span>
+      <span class="game-card__foot">
+        <span class="game-card__badge">3:2</span>
+        <span class="game-card__live"><i class="dot"></i><em data-live>1,540</em> playing</span>
+      </span>
+      <span class="game-card__cta">Play <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-bolt" /></svg></span>
+    </button>
+  </div>
+
+  <div id="lobby-empty" class="lobby-empty" hidden>
+    <p>No games match your search.</p>
+    <button id="lobby-clear-search" type="button" class="btn btn--ghost btn--sm">Clear Search</button>
+  </div>
+
+  <footer class="lobby-foot">
+    <p>Nour's Casino is 100% play-money and provably fair. All roll outcomes are cryptographic and verifiable.</p>
+  </footer>
+</section>
+
+<main class="layout" id="main">
+
+  <!-- ------------------------------- SIDEBAR ------------------------------- -->
+  <aside class="panel controls" aria-label="Bet controls">
+
+    <div class="segmented segmented--mode" role="tablist" aria-label="Betting mode">
+      <button type="button" class="segmented__btn is-active" role="tab" aria-selected="true" data-mode="manual" id="tab-manual" aria-controls="pane-auto">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-hand" /></svg> Manual
+      </button>
+      <button type="button" class="segmented__btn" role="tab" aria-selected="false" data-mode="auto" id="tab-auto" aria-controls="pane-auto">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-bolt" /></svg> Auto
+      </button>
+      <span class="segmented__thumb" aria-hidden="true"></span>
+    </div>
+
+    <div class="controls__scroll">
+
+      <!-- Bet amount -->
+      <div class="field">
+        <div class="field__head">
+          <label class="field__label" for="bet-amount">Bet Amount</label>
+          <span class="field__hint" id="bet-usd">$10.00</span>
+        </div>
+        <div class="input-group">
+          <span class="input-group__prefix" aria-hidden="true">$</span>
+          <input class="input" type="text" id="bet-amount" inputmode="decimal" autocomplete="off"
+                 spellcheck="false" value="10.00" aria-describedby="bet-usd" />
+          <div class="input-group__actions">
+            <button type="button" class="chip-btn" data-bet-op="min" title="Minimum bet">MIN</button>
+            <button type="button" class="chip-btn" data-bet-op="half" title="Halve bet — hotkey A">&frac12;</button>
+            <button type="button" class="chip-btn" data-bet-op="double" title="Double bet — hotkey S">2&times;</button>
+            <button type="button" class="chip-btn" data-bet-op="max" title="Bet entire balance — hotkey D">MAX</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plinko Controls Pane -->
+      <div class="game-ctrl-pane is-active" id="pane-ctrl-plinko">
+        <!-- Risk -->
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" id="risk-label">Risk</label>
+            <span class="field__hint" id="risk-edge">Edge 1%</span>
+          </div>
+          <div class="segmented segmented--risk" role="radiogroup" aria-labelledby="risk-label">
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" data-risk="low">Low</button>
+            <button type="button" class="segmented__btn is-active" role="radio" aria-checked="true" data-risk="medium">Medium</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" data-risk="high">High</button>
+            <span class="segmented__thumb" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <!-- Rows -->
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="rows-range">Rows</label>
+            <span class="field__hint"><output id="rows-out">16</output> rows &middot; <span id="rows-buckets">17</span> buckets</span>
+          </div>
+          <div class="range-wrap">
+            <input class="range" type="range" id="rows-range" min="8" max="16" step="1" value="16" aria-describedby="rows-out" />
+            <div class="range-ticks" aria-hidden="true">
+              <span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crash Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-crash" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="crash-auto-cashout">Auto Cashout Multiplier</label>
+            <span class="field__hint">Target &ge; 1.01&times;</span>
+          </div>
+          <div class="input-group">
+            <input class="input" type="text" id="crash-auto-cashout" value="2.00" inputmode="decimal" />
+            <span class="input-group__suffix">&times;</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Twist Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-twist" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label">Celestial Circles</label>
+            <span class="field__hint">3 Rings &middot; 36 Segments</span>
+          </div>
+          <div class="payout-preview">
+            <div class="payout-preview__row">
+              <span>Current Multiplier</span>
+              <b id="twist-current-mult" class="txt-gold">1.00&times;</b>
+            </div>
+          </div>
+          <button type="button" class="btn btn--mint btn--sm" id="btn-twist-cashout" style="margin-top:10px;">
+            <span>Cash Out Twist</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Limbo Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-limbo" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="limbo-target">Target Multiplier</label>
+            <span class="field__hint" id="limbo-chance">Win Chance: 49.50%</span>
+          </div>
+          <div class="input-group">
+            <input class="input" type="text" id="limbo-target" value="2.00" inputmode="decimal" />
+            <span class="input-group__suffix">&times;</span>
+          </div>
+        </div>
+      </div>
+      <!-- Roulette Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-roulette" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label">Bet Color / Choice</label>
+            <span class="field__hint">Red (2x) &middot; Green (14x) &middot; Black (2x)</span>
+          </div>
+          <div class="segmented" role="radiogroup" id="roulette-color-seg">
+            <button type="button" class="segmented__btn is-active" data-color="red" style="color:#ef4444;">Red 2x</button>
+            <button type="button" class="segmented__btn" data-color="green" style="color:#10b981;">Green 14x</button>
+            <button type="button" class="segmented__btn" data-color="black" style="color:#94a3b8;">Black 2x</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pocket Dice Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-pocket-dice" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="pocket-dice-target">Pocket Target Roll</label>
+            <span class="field__hint" id="pocket-dice-chance">Win Chance: 49.50%</span>
+          </div>
+          <div class="input-group">
+            <input class="input" type="text" id="pocket-dice-target" value="50.00" inputmode="decimal" />
+          </div>
+          <div class="segmented" style="margin-top:8px;">
+            <button type="button" class="segmented__btn is-active" id="btn-pdice-over" data-cond="over">Roll Over &gt;</button>
+            <button type="button" class="segmented__btn" id="btn-pdice-under" data-cond="under">Roll Under &lt;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dice Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-dice" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="dice-target">Target Roll</label>
+            <span class="field__hint" id="dice-chance">Win Chance: 49.50%</span>
+          </div>
+          <div class="input-group">
+            <input class="input" type="text" id="dice-target" value="50.00" inputmode="decimal" />
+          </div>
+          <div class="segmented" style="margin-top:8px;">
+            <button type="button" class="segmented__btn is-active" id="btn-dice-over" data-cond="over">Roll Over &gt;</button>
+            <button type="button" class="segmented__btn" id="btn-dice-under" data-cond="under">Roll Under &lt;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hilo Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-hilo" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label">Card Guess</label>
+            <span class="field__hint" id="hilo-mult-hint">Multiplier: 1.00&times;</span>
+          </div>
+          <div class="chip-row">
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-higher">Higher &uarr;</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-lower">Lower &darr;</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-same">Same =</button>
+          </div>
+          <button type="button" class="btn btn--mint btn--sm" id="btn-hilo-cashout" style="margin-top:8px;">
+            <span>Cash Out Hilo</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Keno Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-keno" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label">Selected Tiles</label>
+            <span class="field__hint" id="keno-picks-count">0 of 10</span>
+          </div>
+          <div class="chip-row">
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-auto-pick">Auto Pick</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-clear">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mines Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-mines" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="mines-count-select">Number of Mines</label>
+            <span class="field__hint" id="mines-mult-hint">Gems: 24</span>
+          </div>
+          <select class="input" id="mines-count-select">
+            <option value="1">1 Mine</option>
+            <option value="3" selected>3 Mines</option>
+            <option value="5">5 Mines</option>
+            <option value="10">10 Mines</option>
+            <option value="15">15 Mines</option>
+            <option value="20">20 Mines</option>
+          </select>
+          <button type="button" class="btn btn--mint btn--sm" id="btn-mines-cashout" style="margin-top:8px;">
+            <span>Cash Out Mines</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Blackjack Controls Pane -->
+      <div class="game-ctrl-pane" id="pane-ctrl-blackjack" style="display:none;">
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label">Actions</label>
+            <span class="field__hint">Classic 21</span>
+          </div>
+          <div class="chip-row">
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-hit">Hit</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-stand">Stand</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-double">Double</button>
+          </div>
+        </div>
+      </div>
+      <!-- Auto pane -->
+      <div class="auto-pane" id="pane-auto" role="tabpanel" aria-labelledby="tab-auto" hidden>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="auto-count">Number of Bets</label>
+            <span class="field__hint" id="auto-progress">0 is &infin;</span>
+          </div>
+          <input class="input" type="text" id="auto-count" inputmode="numeric" autocomplete="off" value="25" />
+          <div class="chip-row">
+            <button type="button" class="chip-btn chip-btn--wide" data-auto-count="10">10</button>
+            <button type="button" class="chip-btn chip-btn--wide" data-auto-count="25">25</button>
+            <button type="button" class="chip-btn chip-btn--wide" data-auto-count="50">50</button>
+            <button type="button" class="chip-btn chip-btn--wide" data-auto-count="100">100</button>
+            <button type="button" class="chip-btn chip-btn--wide" data-auto-count="0">&infin;</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="auto-speed">Drop Speed</label>
+            <span class="field__hint"><output id="auto-speed-out">Fast</output></span>
+          </div>
+          <div class="range-wrap">
+            <input class="range" type="range" id="auto-speed" min="1" max="10" step="1" value="7" />
+            <div class="range-ticks range-ticks--sparse" aria-hidden="true"><span>Slow</span><span>Turbo</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payout preview -->
+      <div class="payout-preview">
+        <div class="payout-preview__row">
+          <span>Max Multiplier</span>
+          <b id="preview-max-mult" class="txt-gold">1000&times;</b>
+        </div>
+        <div class="payout-preview__row">
+          <span>Max Win</span>
+          <b id="preview-max-win" class="txt-gold">$10,000.00</b>
+        </div>
+      </div>
+
+    </div>
+
+    <button type="button" class="btn btn--drop" id="btn-drop">
+      <span class="btn--drop__label" id="drop-label">Drop Ball</span>
+      <span class="btn--drop__sub" id="drop-sub">Press Space</span>
+    </button>
+
+    <ul class="hotkeys" aria-label="Keyboard shortcuts">
+      <li><kbd>Space</kbd> Drop</li>
+      <li><kbd>A</kbd> &frac12;</li>
+      <li><kbd>S</kbd> 2&times;</li>
+      <li><kbd>D</kbd> Max</li>
+    </ul>
+  </aside>
+
+  <!-- -------------------------------- BOARD -------------------------------- -->
+  <section class="board" aria-label="Plinko board">
+
+    <div class="history-rail" aria-label="Recent results">
+      <div class="history-rail__label">
+        <svg class="ico" width="14" height="14" aria-hidden="true"><use href="#i-trend" /></svg>
+        <span>Recent</span>
+      </div>
+      <ol class="history-rail__list" id="history-list" aria-live="polite" aria-relevant="additions">
+        <li class="history-rail__empty" id="history-empty">No drops yet — hit <kbd>Space</kbd> to play</li>
+      </ol>
+    </div>
+
+    <div class="board-stage" id="board-stage">
+      <!-- Plinko Game View -->
+      <div class="game-stage-view is-active" id="view-plinko">
+        <canvas id="plinko-canvas" aria-label="Plinko board animation" role="img"></canvas>
+      </div>
+
+      <!-- Crash Game View -->
+      <div class="game-stage-view" id="view-crash">
+        <canvas id="crash-canvas" aria-label="Crash chart animation" role="img"></canvas>
+      </div>
+
+      <!-- Twist Game View -->
+      <div class="game-stage-view" id="view-twist">
+        <canvas id="twist-canvas" aria-label="Twist orbital rings animation" role="img"></canvas>
+      </div>
+
+      <!-- Limbo Game View -->
+      <div class="game-stage-view" id="view-limbo">
+        <div class="limbo-display" id="limbo-display">
+          <div class="limbo-multiplier" id="limbo-mult-text">1.00&times;</div>
+          <div class="limbo-status" id="limbo-status-text">Set target and roll</div>
+        </div>
+      </div>
+      <!-- Roulette Game View -->
+      <div class="game-stage-view" id="view-roulette">
+        <canvas id="roulette-canvas" aria-label="Roulette wheel animation" role="img"></canvas>
+      </div>
+
+      <!-- Pocket Dice Game View -->
+      <div class="game-stage-view" id="view-pocket-dice">
+        <div class="dice-stage-container" id="pocket-dice-stage">
+          <canvas id="pocket-dice-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- Dice Game View -->
+      <div class="game-stage-view" id="view-dice">
+        <div class="dice-stage-container" id="dice-stage">
+          <canvas id="dice-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- Hilo Game View -->
+      <div class="game-stage-view" id="view-hilo">
+        <div class="hilo-stage-container" id="hilo-stage">
+          <canvas id="hilo-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- Keno Game View -->
+      <div class="game-stage-view" id="view-keno">
+        <div class="keno-stage-container" id="keno-stage"></div>
+      </div>
+
+      <!-- Mines Game View -->
+      <div class="game-stage-view" id="view-mines">
+        <div class="mines-stage-container" id="mines-stage"></div>
+      </div>
+
+      <!-- Blackjack Game View -->
+      <div class="game-stage-view" id="view-blackjack">
+        <div class="blackjack-stage-container" id="blackjack-stage"></div>
+      </div>
+
+      <div class="board-stage__glow" aria-hidden="true"></div>
+      <div class="win-pop" id="win-pop" aria-hidden="true"></div>
+    </div>
+
+    <div class="board-footer">
+      <div class="board-footer__stat">
+        <svg class="ico" width="14" height="14" aria-hidden="true"><use href="#i-coins" /></svg>
+        <span>Bets</span><b id="mini-bets">0</b>
+      </div>
+      <div class="board-footer__stat">
+        <svg class="ico" width="14" height="14" aria-hidden="true"><use href="#i-target" /></svg>
+        <span>Wagered</span><b id="mini-wagered">$0.00</b>
+      </div>
+      <div class="board-footer__stat">
+        <svg class="ico" width="14" height="14" aria-hidden="true"><use href="#i-trend" /></svg>
+        <span>Profit</span><b id="mini-profit" class="stat-value">$0.00</b>
+      </div>
+      <div class="board-footer__stat board-footer__stat--fair">
+        <span class="dot-live" aria-hidden="true"></span>
+        <span>Nonce</span><b id="mini-nonce">0</b>
+      </div>
+    </div>
+    <!-- Gamdom Live Players Table -->
+    <div class="live-players-section">
+      <div class="live-players-header">
+        <span class="live-players-title"><svg class="ico" width="16" height="16"><use href="#i-hand" /></svg> Active Bets</span>
+        <span class="live-players-count" id="live-players-count">12 Players</span>
+      </div>
+      <table class="live-players-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Multiplier</th>
+            <th>Bet / Payout</th>
+          </tr>
+        </thead>
+        <tbody id="live-players-tbody">
+          <tr><td><span class="avatar-circle"></span> Player_3914</td><td><span class="table-chip txt-red">x1.45</span></td><td><span class="txt-mint">$14.50</span></td></tr>
+          <tr><td><span class="avatar-circle"></span> CryptoRider</td><td><span class="table-chip txt-mint">x2.10</span></td><td><span class="txt-mint">$21.00</span></td></tr>
+          <tr><td><span class="avatar-circle"></span> LuckyDrop</td><td><span class="table-chip txt-red">x1.12</span></td><td><span class="txt-mint">$11.20</span></td></tr>
+          <tr><td><span class="avatar-circle"></span> VipGamer</td><td><span class="table-chip txt-mint">x5.80</span></td><td><span class="txt-mint">$58.00</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </section>
+</main>
+
+<!-- ================================= MODALS ================================= -->
+
+<!-- Live stats -->
+<div class="modal" id="modal-stats" role="dialog" aria-modal="true" aria-labelledby="stats-title" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card modal__card--wide" role="document">
+    <header class="modal__head">
+      <h2 class="modal__title" id="stats-title">
+        <svg class="ico" width="18" height="18" aria-hidden="true"><use href="#i-chart" /></svg> Live Stats
+      </h2>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" data-close aria-label="Close">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+
+    <div class="modal__body">
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span class="stat-card__label"><svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-coins" /></svg> Total Bets</span>
+          <b class="stat-card__value" id="stat-bets">0</b>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label"><svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-target" /></svg> Total Wagered</span>
+          <b class="stat-card__value" id="stat-wagered">$0.00</b>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label"><svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-trend" /></svg> Net Profit</span>
+          <b class="stat-card__value stat-value" id="stat-profit">$0.00</b>
+        </div>
+        <div class="stat-card stat-card--gold">
+          <span class="stat-card__label"><svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-trophy" /></svg> Best Win</span>
+          <b class="stat-card__value" id="stat-bestwin">$0.00</b>
+          <small class="stat-card__sub" id="stat-bestmult">—</small>
+        </div>
+      </div>
+
+      <div class="stat-strip">
+        <div class="stat-strip__item"><span>Win Rate</span><b id="stat-winrate">0.00%</b></div>
+        <div class="stat-strip__item"><span>Wins</span><b class="txt-green" id="stat-wins">0</b></div>
+        <div class="stat-strip__item"><span>Losses</span><b class="txt-red" id="stat-losses">0</b></div>
+        <div class="stat-strip__item"><span>Returned</span><b id="stat-returned">$0.00</b></div>
+        <div class="stat-strip__item"><span>RTP</span><b id="stat-rtp">—</b></div>
+      </div>
+
+      <section class="dist">
+        <header class="dist__head">
+          <h3>Bucket Distribution <small id="dist-config">16 rows &middot; Medium</small></h3>
+          <span class="dist__legend"><i class="swatch swatch--actual"></i> Actual <i class="swatch swatch--theory"></i> Theoretical</span>
+        </header>
+        <div class="dist__body" id="dist-body"><!-- rendered by app.js --></div>
+      </section>
+
+      <button type="button" class="btn btn--ghost btn--block" id="btn-reset-stats">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-refresh" /></svg> Reset Statistics
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Provably fair -->
+<div class="modal" id="modal-fair" role="dialog" aria-modal="true" aria-labelledby="fair-title" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card modal__card--wide" role="document">
+    <header class="modal__head">
+      <h2 class="modal__title" id="fair-title">
+        <svg class="ico" width="18" height="18" aria-hidden="true"><use href="#i-shield" /></svg> Provably Fair
+      </h2>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" data-close aria-label="Close">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+
+    <div class="modal__body">
+      <p class="prose">
+        Every drop is derived from <code>HMAC-SHA256(serverSeed, clientSeed:nonce)</code>. The server seed is
+        committed up-front as a hash — rotate it any time to reveal the old seed and verify past rounds.
+      </p>
+
+      <div class="field">
+        <label class="field__label" for="fair-client">Client Seed</label>
+        <div class="input-group">
+          <input class="input input--mono" type="text" id="fair-client" spellcheck="false" autocomplete="off" />
+          <div class="input-group__actions">
+            <button type="button" class="chip-btn" id="btn-randomize-client" title="Randomize client seed">
+              <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-dice" /></svg>
+            </button>
+            <button type="button" class="chip-btn" data-copy="#fair-client" title="Copy">
+              <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field__head">
+          <label class="field__label" for="fair-server-hash">Active Server Seed (hashed)</label>
+          <span class="field__hint">SHA-256 commitment</span>
+        </div>
+        <div class="input-group">
+          <input class="input input--mono" type="text" id="fair-server-hash" readonly spellcheck="false" />
+          <div class="input-group__actions">
+            <button type="button" class="chip-btn" data-copy="#fair-server-hash" title="Copy">
+              <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="fair-nonce">Nonce</label>
+          <input class="input input--mono" type="text" id="fair-nonce" inputmode="numeric" value="0" />
+        </div>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="fair-prev-server">Previous Server Seed</label>
+            <span class="field__hint">revealed</span>
+          </div>
+          <div class="input-group">
+            <input class="input input--mono" type="text" id="fair-prev-server" readonly placeholder="Rotate to reveal" spellcheck="false" />
+            <div class="input-group__actions">
+              <button type="button" class="chip-btn" data-copy="#fair-prev-server" title="Copy">
+                <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn--mint btn--block" id="btn-rotate-seed">
+        <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-refresh" /></svg> Rotate Server Seed &amp; Reveal
+      </button>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-eye" /></svg> Verify a Round</h3>
+        <div class="field">
+          <label class="field__label" for="verify-server">Server Seed (unhashed)</label>
+          <input class="input input--mono" type="text" id="verify-server" spellcheck="false" placeholder="Paste a revealed server seed" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="verify-client">Client Seed</label>
+          <input class="input input--mono" type="text" id="verify-client" spellcheck="false" />
+        </div>
+        <div class="grid-3">
+          <div class="field">
+            <label class="field__label" for="verify-nonce">Nonce</label>
+            <input class="input input--mono" type="text" id="verify-nonce" inputmode="numeric" value="0" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="verify-rows">Rows</label>
+            <input class="input input--mono" type="number" id="verify-rows" min="8" max="16" value="16" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="verify-risk">Risk</label>
+            <select class="input" id="verify-risk">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+        <button type="button" class="btn btn--outline btn--block" id="btn-verify">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-check" /></svg> Verify Outcome
+        </button>
+        <div class="verify__result" id="verify-result" hidden></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Customize -->
+<div class="modal" id="modal-custom" role="dialog" aria-modal="true" aria-labelledby="custom-title" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card modal__card--wide" role="document">
+    <header class="modal__head">
+      <h2 class="modal__title" id="custom-title">
+        <svg class="ico" width="18" height="18" aria-hidden="true"><use href="#i-sliders" /></svg> Customize
+      </h2>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" data-close aria-label="Close">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+
+    <div class="modal__body">
+      <p class="prose">
+        A sandbox for the whole suite — these values change the real payout maths, not just the display.
+        Every game is rebalanced around the house edge you set here.
+      </p>
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-coins" /></svg> Balance</h3>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="custom-balance">Exact Balance</label>
+            <span class="field__hint">applied immediately</span>
+          </div>
+          <div class="input-group">
+            <span class="input-group__prefix" aria-hidden="true">$</span>
+            <input class="input" type="text" id="custom-balance" inputmode="decimal" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-trend" /></svg> House Edge</h3>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="custom-edge">Edge</label>
+            <span class="field__hint">default 1%</span>
+          </div>
+          <div class="input-group">
+            <input class="input" type="text" id="custom-edge" inputmode="decimal" autocomplete="off" spellcheck="false" />
+            <span class="input-group__suffix">%</span>
+          </div>
+          <span class="field__hint">Negative values are allowed and favour the player — an edge of &minus;5% pays back more than you stake.</span>
+        </div>
+        <div id="custom-rtp-out"></div>
+        <div id="custom-warn"></div>
+      </section>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-target" /></svg> Bet Limits</h3>
+        <div class="grid-2">
+          <div class="field">
+            <label class="field__label" for="custom-min-bet">Minimum Bet</label>
+            <div class="input-group">
+              <span class="input-group__prefix" aria-hidden="true">$</span>
+              <input class="input" type="text" id="custom-min-bet" inputmode="decimal" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <div class="field">
+            <div class="field__head">
+              <label class="field__label" for="custom-max-bet">Maximum Bet</label>
+              <span class="field__hint">0 = balance only</span>
+            </div>
+            <div class="input-group">
+              <span class="input-group__prefix" aria-hidden="true">$</span>
+              <input class="input" type="text" id="custom-max-bet" inputmode="decimal" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+        </div>
+        <span class="field__hint">A maximum of 0 means the stake is limited only by your balance.</span>
+      </section>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-trophy" /></svg> Max Win</h3>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="custom-max-win">Payout Cap</label>
+            <span class="field__hint">per round</span>
+          </div>
+          <div class="input-group">
+            <span class="input-group__prefix" aria-hidden="true">$</span>
+            <input class="input" type="text" id="custom-max-win" inputmode="decimal" autocomplete="off" spellcheck="false" />
+          </div>
+          <span class="field__hint">0 = unlimited. Any single round pays at most this much.</span>
+        </div>
+      </section>
+
+      <div class="grid-2">
+        <button type="button" class="btn btn--mint btn--block" id="btn-custom-apply">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-check" /></svg> Apply Changes
+        </button>
+        <button type="button" class="btn btn--outline btn--block" id="btn-custom-reset">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-refresh" /></svg> Restore Defaults
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Player profiles -->
+<div class="modal" id="modal-account" role="dialog" aria-modal="true" aria-labelledby="account-title" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card modal__card--wide" role="document">
+    <header class="modal__head">
+      <h2 class="modal__title" id="account-title">
+        <svg class="ico" width="18" height="18" aria-hidden="true"><use href="#i-hand" /></svg> Player Profiles
+      </h2>
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" data-close aria-label="Close">
+        <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-close" /></svg>
+      </button>
+    </header>
+
+    <div class="modal__body">
+      <p class="prose">
+        Each player keeps their own balance, stats, history, seeds and limits in this browser's
+        <code>localStorage</code>. Switching swaps the whole session; exporting hands it to another
+        machine — or to a friend.
+      </p>
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-menu" /></svg> Players</h3>
+        <ul class="acct-list" id="account-list"></ul>
+      </section>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-plus" /></svg> Create</h3>
+        <div class="grid-2">
+          <div class="field">
+            <div class="field__head">
+              <label class="field__label" for="account-name">Player Name</label>
+              <span class="acct-dot" id="account-name-dot" aria-hidden="true"></span>
+            </div>
+            <input class="input" type="text" id="account-name" maxlength="24" placeholder="e.g. Nour" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="field">
+            <div class="field__head">
+              <label class="field__label" for="account-pin">PIN</label>
+              <span class="field__hint">optional</span>
+            </div>
+            <input class="input input--mono" type="text" id="account-pin" inputmode="numeric" maxlength="8" placeholder="1234" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+        <span class="field__hint">A PIN only stops casual tampering on a shared computer. It is <b>not</b> security &mdash; the check runs in your browser, so anyone who opens dev tools can remove it or read the save directly.</span>
+        <button type="button" class="btn btn--mint btn--block" id="btn-account-create">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-plus" /></svg> Create Player
+        </button>
+      </section>
+
+      <div id="account-unlock" hidden>
+        <hr class="rule" />
+        <section class="verify">
+          <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-shield" /></svg> Unlock</h3>
+          <div class="field">
+            <div class="field__head">
+              <label class="field__label" for="account-unlock-pin">PIN</label>
+              <span class="field__hint" id="account-unlock-name">&mdash;</span>
+            </div>
+            <input class="input input--mono" type="text" id="account-unlock-pin" inputmode="numeric" maxlength="8" placeholder="Enter PIN" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="grid-2">
+            <button type="button" class="btn btn--mint btn--block" id="btn-account-unlock">
+              <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-check" /></svg> Unlock &amp; Switch
+            </button>
+            <button type="button" class="btn btn--ghost btn--block" id="btn-account-unlock-cancel">
+              <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-close" /></svg> Cancel
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-copy" /></svg> Export</h3>
+        <span class="field__hint">Builds a portable save string. Paste it into Import on another machine, or save it as a <code>.json</code> file.</span>
+        <div class="grid-2">
+          <button type="button" class="btn btn--outline btn--block" id="btn-account-export">
+            <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-target" /></svg> Active Player
+          </button>
+          <button type="button" class="btn btn--outline btn--block" id="btn-account-export-all">
+            <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-grid" /></svg> All Players
+          </button>
+        </div>
+        <div class="field">
+          <label class="field__label" for="account-export-out">Save String</label>
+          <textarea class="input" id="account-export-out" rows="3" readonly spellcheck="false" placeholder="Pick an export above to build a save string&hellip;"></textarea>
+          <div class="chip-row">
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-account-copy">Copy</button>
+            <button type="button" class="chip-btn chip-btn--wide" id="btn-account-download">Download .json</button>
+          </div>
+        </div>
+      </section>
+
+      <hr class="rule" />
+
+      <section class="verify">
+        <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-refresh" /></svg> Import</h3>
+        <div class="field">
+          <div class="field__head">
+            <label class="field__label" for="account-import-in">Save String</label>
+            <span class="field__hint">paste, or load a file</span>
+          </div>
+          <textarea class="input" id="account-import-in" rows="3" spellcheck="false" autocomplete="off" placeholder="Paste an exported save string&hellip;"></textarea>
+        </div>
+        <label class="file-pick" for="account-import-file">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-plus" /></svg>
+          <span class="file-pick__label">Choose a save file&hellip;</span>
+          <input type="file" id="account-import-file" accept="application/json,.json,.txt" />
+        </label>
+        <div class="field">
+          <div class="field__head">
+            <span class="field__label" id="account-import-mode-label">Name Collision</span>
+            <span class="field__hint">when that player already exists</span>
+          </div>
+          <div class="segmented" id="account-import-mode" role="radiogroup" aria-labelledby="account-import-mode-label">
+            <button type="button" class="segmented__btn is-active" role="radio" aria-checked="true" data-mode="rename">Rename</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" data-mode="overwrite">Overwrite</button>
+            <span class="segmented__thumb" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button type="button" class="btn btn--mint btn--block" id="btn-account-import">
+          <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-check" /></svg> Import Save
+        </button>
+      </section>
+
+      <p id="account-msg" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<!-- Cheat mode HUD -->
+<aside id="cheat-panel" class="cheat-panel" aria-live="polite" aria-label="Cheat mode readout">
+  <div class="cheat-panel__head">
+    <span class="cheat-panel__title" id="cheat-title">Cheat</span>
+    <span class="cheat-panel__badge" id="cheat-badge">NEXT ROUND</span>
+    <button type="button" class="cheat-panel__close" id="btn-cheat-close" title="Disable cheat mode" aria-label="Disable cheat mode">&times;</button>
+  </div>
+  <div class="cheat-cards is-empty" id="cheat-cards"></div>
+  <div class="cheat-grid is-empty" id="cheat-grid"></div>
+  <div class="cheat-rows" id="cheat-rows"></div>
+  <p class="cheat-note" id="cheat-note"></p>
+</aside>
+
+<script type="module" src="js/app.js"></script>
+<noscript>
+  <div class="noscript">Plinko needs JavaScript enabled to run.</div>
+</noscript>
+</body>
+</html>

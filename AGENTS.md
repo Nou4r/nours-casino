@@ -652,6 +652,19 @@ Phone-first pass (this pass) — the stage went from 43% to ~75% of a 390x844 vi
 - **Money residual exactly 0** for plinko, limbo, keno, dice, pocket-dice, roulette, crash,
   twist, hilo and mines, each driven individually with real mid-round cashouts.
 
+Action-dock follow-up (same pass, after the first phone build shipped):
+
+- **All 11 games x 13 viewports** (320x568 through 1920x1080, both orientations): zero
+  overflow, canvas inside stage, bet bar on screen, and where a dock exists it is fully on
+  screen with the stage ending above it. Every docked button is >=44px and hit-tests to
+  itself.
+- **Primary label**, all 11 games: correct per game, and no longer clobbered by a bet change
+  (previously "Start Mines" reverted to "Drop Ball" on any bet edit).
+- **Crash cash-out through the bar**: idle "Place Bet" -> running "Cash Out / Bank it" in
+  stop styling -> tap banks the round (balance 1010.00 -> 1043.75) -> label restores.
+- **Money residual exactly 0** again for all ten driven games, this time cashing out through
+  the real docked buttons rather than the `window.plinko` handlers.
+
 ### Pre-existing defect found here, NOT introduced and NOT yet fixed
 
 `#btn-bj-hit`, `#btn-bj-stand` and `#btn-bj-double` each have **two** `addEventListener`
@@ -935,9 +948,41 @@ moment the layout stacks, the bet button sits below the stage (measured y=1308 o
    the controls panel instead of the screen — it looks almost right and fails exactly where
    you cannot see it. `.controls { backdrop-filter: none }` is in the same block for that
    reason (and is the cheapest perf win on a phone GPU).
-2. **Everything anchored to the bottom must clear it**: toasts (`bottom: 92px + safe-area`)
-   and the cheat panel dock (css/gamdom.css). Add a new bottom-anchored element and it must
-   join that list.
+2. **Everything anchored to the bottom must clear it**: toasts, the cheat panel dock
+   (css/gamdom.css) and the in-round action dock below. Add a new bottom-anchored element
+   and it must join that list.
+
+### The in-round action dock — the bet bar alone was not enough
+
+A fixed bet bar gets you *into* a round. It does nothing for the decision the round is then
+waiting on: Hit / Stand / Double, Higher / Lower / Same and every Cash Out live in
+`.game-ctrl-pane`, inside `.controls`, **below** a 630px stage. On a phone that meant
+scrolling the whole board away to answer the game — the complaint that produced this section.
+
+`.pane-actions` is the subset of a control pane a player needs DURING a round. Below 1080px
+it is `position: fixed` directly above the bet bar. Settings (mines count, target multiplier,
+rows/risk, auto-cashout) deliberately stay in the panel — they are set once, not per decision.
+
+- **No DOM moves and no duplicate markup.** The same buttons keep the same handlers; only
+  their box changes. Inactive panes are `display: none`, so only one dock can ever render —
+  that is what makes a bare `.pane-actions` selector safe.
+- **Row where there is width, column on a portrait phone.** Three chips plus a Cash Out do
+  not fit a 366px line at 44px targets; above 720px they do, and a one-row dock costs the
+  board 55px less.
+- **The stage must end above the DOCK, not above the bar.** Two `:has()` tiers subtract the
+  dock's real height (one-row games, then hilo's two-row dock). Without it the board ran
+  under the buttons — measured at both 390×844 and 1024×768.
+- `:has()` is the mechanism, and its failure mode is graceful: without it the dock overlays
+  the top of the board footer, which is a stats strip.
+
+**Crash has no dock and needs none — the bet bar IS its cash-out.** `playCrash()` cashes out
+when the round is running, so the label has to follow the state: `renderDropButton()` now
+resolves the label through one `primaryLabel()` helper and is re-run when a crash round
+starts (AFTER the `await` — `startRound()` awaits the HMAC before it calls
+`setState('running')`, so a synchronous render reads the old state) and from `onCashout` /
+`onCrash` when it ends. That helper also fixed a standing bug: `renderDropButton()` used to
+hardcode `'Drop Ball'` in manual mode and clobbered whatever label `selectGame()` had just
+written, so changing the bet on the mines tab relabelled the button "Drop Ball".
 
 ### Per-game canvas contract
 

@@ -632,9 +632,14 @@
               <b id="twist-current-mult" class="txt-gold">1.00&times;</b>
             </div>
           </div>
-          <button type="button" class="btn btn--mint btn--sm" id="btn-twist-cashout" style="margin-top:10px;">
-            <span>Cash Out Twist</span>
-          </button>
+          <!-- .pane-actions = the controls a player needs DURING a round. On phones
+               CSS docks this row above the fixed bet bar so it is reachable without
+               scrolling past the board. Settings stay in the panel. -->
+          <div class="pane-actions">
+            <button type="button" class="btn btn--mint btn--sm" id="btn-twist-cashout">
+              <span>Cash Out Twist</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -707,14 +712,16 @@
             <label class="field__label">Card Guess</label>
             <span class="field__hint" id="hilo-mult-hint">Multiplier: 1.00&times;</span>
           </div>
-          <div class="chip-row">
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-higher">Higher &uarr;</button>
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-lower">Lower &darr;</button>
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-same">Same =</button>
+          <div class="pane-actions">
+            <div class="chip-row">
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-higher">Higher &uarr;</button>
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-lower">Lower &darr;</button>
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-hilo-same">Same =</button>
+            </div>
+            <button type="button" class="btn btn--mint btn--sm" id="btn-hilo-cashout">
+              <span>Cash Out Hilo</span>
+            </button>
           </div>
-          <button type="button" class="btn btn--mint btn--sm" id="btn-hilo-cashout" style="margin-top:8px;">
-            <span>Cash Out Hilo</span>
-          </button>
         </div>
       </div>
 
@@ -725,9 +732,11 @@
             <label class="field__label">Selected Tiles</label>
             <span class="field__hint" id="keno-picks-count">0 of 10</span>
           </div>
-          <div class="chip-row">
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-auto-pick">Auto Pick</button>
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-clear">Clear</button>
+          <div class="pane-actions">
+            <div class="chip-row">
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-auto-pick">Auto Pick</button>
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-keno-clear">Clear</button>
+            </div>
           </div>
         </div>
       </div>
@@ -747,9 +756,11 @@
             <option value="15">15 Mines</option>
             <option value="20">20 Mines</option>
           </select>
-          <button type="button" class="btn btn--mint btn--sm" id="btn-mines-cashout" style="margin-top:8px;">
-            <span>Cash Out Mines</span>
-          </button>
+          <div class="pane-actions">
+            <button type="button" class="btn btn--mint btn--sm" id="btn-mines-cashout">
+              <span>Cash Out Mines</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -760,10 +771,12 @@
             <label class="field__label">Actions</label>
             <span class="field__hint">Classic 21</span>
           </div>
-          <div class="chip-row">
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-hit">Hit</button>
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-stand">Stand</button>
-            <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-double">Double</button>
+          <div class="pane-actions">
+            <div class="chip-row">
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-hit">Hit</button>
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-stand">Stand</button>
+              <button type="button" class="chip-btn chip-btn--wide" id="btn-bj-double">Double</button>
+            </div>
           </div>
         </div>
       </div>

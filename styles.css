@@ -1031,7 +1031,15 @@ select.input option { background: var(--panel-2); color: var(--text); }
   .controls { order: 2; }
 
   .controls__scroll { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-  .board-stage { aspect-ratio: 1.25; max-height: 65dvh; min-height: 340px; }
+  /* svh, not dvh — a dvh cap re-lays-out every canvas on each frame of the URL-bar
+     animation (see the <=720px block for the full reasoning). */
+  .board-stage { aspect-ratio: 1.25; max-height: 65svh; min-height: 340px; }
+  /* A docked in-round row sits above the bet bar, so the stage has to end above
+     IT, not above the bar. Measured at 1024x768 without this: the board ran 40px
+     under the Hit/Stand/Double row. */
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .board-stage {
+    max-height: min(65svh, calc(100svh - var(--topbar-h) - 240px));
+  }
   .hotkeys { display: none; }
 
   /* The tab strip goes below 1080px. Measured, it collapses to 9-68px here —
@@ -1092,9 +1100,48 @@ select.input option { background: var(--panel-2); color: var(--text); }
     padding: 13px max(18px, env(safe-area-inset-right)) 13px max(18px, env(safe-area-inset-left));
     padding-bottom: max(13px, env(safe-area-inset-bottom));
   }
-  body[data-route="game"] .layout { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
-  /* Toasts must clear that bar, or every win notice lands under the button. */
-  body[data-route="game"] .toasts { bottom: calc(92px + env(safe-area-inset-bottom)); }
+
+  /* The in-round actions dock with it. The bet bar alone was not enough: Hit /
+     Stand / Double, Higher / Lower / Same and every Cash Out live in the control
+     pane BELOW the 630px stage, so a player had to scroll the whole board away to
+     make the decision the round was waiting on. .pane-actions is the subset of a
+     pane a player needs DURING a round; settings stay in the panel where they
+     belong. Inactive panes are display:none, so only one dock can ever render. */
+  :root { --bet-bar-h: calc(49px + env(safe-area-inset-bottom)); }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--bet-bar-h);
+    z-index: 79;                    /* directly under the bet bar, same band */
+    display: flex;
+    /* One row wherever there is width for it — a two-row dock costs the board
+       55px it does not need to give up. Portrait phones override to a column in
+       the <=720px block, where three chips plus a Cash Out will not fit a line. */
+    flex-direction: row;
+    align-items: stretch;
+    gap: 8px;
+    margin: 0;
+    padding: 10px max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    background: rgba(18, 25, 37, .97);
+    box-shadow: 0 -16px 40px -18px rgba(0, 0, 0, .9);
+  }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions .chip-row { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions > .btn { flex: 0 0 auto; }
+
+  /* Bar only by default; the dock's own height is added on top ONLY for the games
+     that have one, so plinko and friends do not scroll past 120px of nothing.
+     If :has() is unavailable the dock simply overlays the top of the board footer,
+     which is a stats strip — graceful, not broken. */
+  body[data-route="game"] .layout { padding-bottom: calc(var(--bet-bar-h) + 14px); }
+  body[data-route="game"] .toasts { bottom: calc(var(--bet-bar-h) + 14px); }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .layout {
+    padding-bottom: calc(var(--bet-bar-h) + 124px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .toasts {
+    bottom: calc(var(--bet-bar-h) + 128px);
+  }
 }
 
 @media (max-width: 860px) {
@@ -1129,6 +1176,20 @@ select.input option { background: var(--panel-2); color: var(--text); }
     height: calc(100svh - var(--topbar-h) - 150px);
     max-height: none;
     min-height: 320px;
+  }
+  /* Games with an in-round dock give it back the height it occupies, or the dock
+     would overlay the bottom of their own board. Two tiers because hilo's dock is
+     a chip row PLUS a cash-out; everything else docks a single row. */
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 218px);
+  }
+  body[data-route="game"]:has(#pane-ctrl-hilo.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 270px);
+  }
+  /* Portrait phones only: three chips plus a Cash Out cannot share a 366px line
+     at 44px targets, so hilo's dock stacks here and the tier above pays for it. */
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    flex-direction: column;
   }
   /* Recent results are a nice-to-have that cost 64px directly above the board,
      and their empty state advertises a keyboard ("hit Space to play"). The same
@@ -1267,23 +1328,39 @@ select.input option { background: var(--panel-2); color: var(--text); }
    Deliberately scoped to <=1080px as well, so a short WIDE desktop window keeps
    its two-column layout and its in-sidebar bet button. */
 @media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape) {
-  /* 390px of height, minus a 77px header and a 44px action bar, leaves ~245px
-     for everything else. The recent-results rail costs 53px of that and is pure
-     chrome, so it goes; the stage takes the rest. Measured before this block:
-     a 200px min-height put the board's bottom edge 11px UNDER the action bar. */
+  /* 390px of height, minus a 65px header, a ~44px action bar and a ~50px action
+     dock leaves ~230px for everything else. The recent-results rail costs 53px of
+     that and is pure chrome, so it goes; the stage takes the rest.
+     svh, not dvh — see the <=720px block: a dvh height re-lays-out every canvas
+     on every frame of the URL-bar animation. */
   .history-rail { display: none; }
   .board-stage {
-    height: calc(100dvh - var(--topbar-h) - 108px);
+    height: calc(100svh - var(--topbar-h) - 162px);
     aspect-ratio: auto;
     max-height: none;
-    min-height: 150px;
+    min-height: 140px;
   }
   body[data-route="game"] .btn--drop {
     padding-top: 10px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
-  body[data-route="game"] .layout { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-  body[data-route="game"] .toasts { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  :root { --bet-bar-h: calc(43px + env(safe-area-inset-bottom)); }
+  /* One ROW here, not a stack: a two-row dock plus the bar would take a third of
+     a 390px-tall screen. There is width to spare in landscape, so spend it. */
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    flex-direction: row;
+    align-items: stretch;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions > .chip-row { flex: 1 1 auto; min-width: 0; }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions > .btn { flex: 0 0 auto; }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .layout {
+    padding-bottom: calc(var(--bet-bar-h) + 62px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .toasts {
+    bottom: calc(var(--bet-bar-h) + 66px);
+  }
   .hotkeys { display: none; }
 }
 

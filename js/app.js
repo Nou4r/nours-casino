@@ -589,6 +589,32 @@ function renderPreview() {
   el.previewWin.textContent = fmtMoney(win);
 }
 
+/* One definition of the primary button's label. renderDropButton() used to
+   hardcode 'Drop Ball' in manual mode, which clobbered the per-game label
+   selectGame() had just written — change the bet on the mines tab and the button
+   read "Drop Ball". It also has to be state-aware: crash has no cash-out control
+   of its own (playCrash() cashes out when the round is running), so without this
+   the only way to bank a crash round is a button still labelled "Place Bet". */
+const DROP_BTN_LABELS = {
+  'plinko': 'Drop Ball',
+  'crash': 'Place Bet',
+  'twist': 'Spin Circle',
+  'limbo': 'Roll Target',
+  'roulette': 'Spin Wheel',
+  'pocket-dice': 'Roll Dice',
+  'dice': 'Roll Dice',
+  'hilo': 'Deal Card',
+  'keno': 'Draw Numbers',
+  'mines': 'Start Mines',
+  'blackjack': 'Deal Cards',
+};
+
+function primaryLabel() {
+  const g = state.activeGame || 'plinko';
+  if (g === 'crash' && crash?.state === 'running') return 'Cash Out';
+  return DROP_BTN_LABELS[g] || 'Drop Ball';
+}
+
 function renderDropButton() {
   const overdrawn = state.bet > state.balance + 1e-9;
   if (state.mode === 'auto') {
@@ -602,8 +628,14 @@ function renderDropButton() {
     el.dropLabel.textContent = 'Start Auto';
     el.dropSub.textContent = state.autoCount > 0 ? `${fmtInt(state.autoCount)} bets` : 'Infinite';
   } else {
-    el.dropLabel.textContent = 'Drop Ball';
-    el.dropSub.textContent = 'Press Space';
+    const cashingOut = state.activeGame === 'crash' && crash?.state === 'running';
+    el.dropLabel.textContent = primaryLabel();
+    el.dropSub.textContent = cashingOut ? 'Bank it' : 'Press Space';
+    // A cash-out is not a bet: it must never be disabled by an overdraft, and it
+    // reads as the stop-action variant so it cannot be mistaken for another wager.
+    el.btnDrop.classList.toggle('is-stop', cashingOut);
+    el.btnDrop.disabled = cashingOut ? false : overdrawn;
+    return;
   }
   el.btnDrop.classList.remove('is-stop');
   el.btnDrop.disabled = overdrawn;
@@ -1482,11 +1514,20 @@ async function playCrash() {
   crash.autoCashout = autoTarget;
 
   try {
+    // The primary button IS crash's cash-out control, so its label has to follow
+    // the round: 'Place Bet' -> 'Cash Out' on start, and back when it settles
+    // (onCashout / onCrash below).
+    // AFTER the await, not before: startRound() awaits the HMAC before it calls
+    // setState('running'), so a synchronous render here reads the old state and
+    // leaves the button saying "Place Bet" for the whole round. It resolves at
+    // round START, not settlement, so this is not a finally either.
     await trackRound(crash.startRound(state.serverSeed, state.clientSeed, nonce));
+    renderDropButton();
   } catch (err) {
     console.error('[crash] start failed', err);
     state.balance = round2(state.balance + bet);
     renderBalance(1);
+    renderDropButton();
   }
 }
 
@@ -2826,8 +2867,10 @@ async function init() {
           renderBalance(1);
           recordGenericRound(wager > 0 ? round2(paid / wager) : 0, wager, paid, 'crash');
           toast(`Cashed out at ${fmtMultX(mult)} (${fmtSigned(paid - wager)})`, 'ok');
+          renderDropButton();   // 'Cash Out' -> 'Place Bet'
         },
         onCrash: (crashMult) => {
+          renderDropButton();   // restore the label on a bust too
           if (crash.state === 'cashed_out') return; // Guard against duplicate crash logging on cashed out round!
           const wager = crash.wageredBet || state.bet;
           recordGenericRound(0, wager, 0, 'crash', crashMult);
@@ -2906,23 +2949,10 @@ async function init() {
       titleEl.textContent = gameLabel(g);
     }
 
-    const DROP_BTN_LABELS = {
-      'plinko': 'Drop Ball',
-      'crash': 'Place Bet',
-      'twist': 'Spin Circle',
-      'limbo': 'Roll Target',
-      'roulette': 'Spin Wheel',
-      'pocket-dice': 'Roll Dice',
-      'dice': 'Roll Dice',
-      'hilo': 'Deal Card',
-      'keno': 'Draw Numbers',
-      'mines': 'Start Mines',
-      'blackjack': 'Deal Cards',
-    };
-    const dropBtnText = $('#btn-drop span');
-    if (dropBtnText && DROP_BTN_LABELS[g]) {
-      dropBtnText.textContent = DROP_BTN_LABELS[g];
-    }
+    // state.activeGame is already `g` here, so the shared resolver covers both the
+    // per-game label and the crash cash-out override, and renderDropButton() can
+    // no longer clobber what this line just wrote.
+    renderDropButton();
 
     const gameInst = {
       plinko: physics,

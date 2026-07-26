@@ -129,11 +129,14 @@ chime, bust and card flip is generated — the project ships no audio files.
 state and switches every canvas stage to its static draw path. Canvas can't hear CSS, so each
 game reads the media query directly and subscribes to its `change` event.
 
-**Built for a phone, not shrunk onto one.** On a 390×844 phone the game board gets **75% of
-the screen**. The header collapses to one 64px row — the seven tools live in a bottom sheet
-behind a single button — the results rail and every keyboard hint disappear, and the bet
-action becomes a fixed, thumb-reachable bar. The balance stays pinned in the header where a
-casino should keep it, and the lobby becomes the game switcher.
+**Built for a phone, not shrunk onto one.** On a 390×844 phone the game board gets **64-75%
+of the screen** and **every control the round is waiting on is on screen with it**. The
+header collapses to one 64px row — the seven tools live in a bottom sheet behind a single
+button — the results rail and every keyboard hint disappear, and the bet action becomes a
+fixed, thumb-reachable bar. Hit / Stand / Double, Higher / Lower / Same and every Cash Out
+dock directly above that bar, so you never scroll the board away to answer the game. The
+balance stays pinned in the header where a casino should keep it, and the lobby becomes the
+game switcher.
 
 Every one of the eleven stages then re-solves its own layout for the tall, narrow box rather
 than scaling a desktop design down. Mines and keno re-pick their grid shape and fill the

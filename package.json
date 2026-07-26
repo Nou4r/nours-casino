@@ -1,0 +1,22 @@
+{
+  "name": "nours-casino",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Eleven provably-fair casino Originals in plain ES modules + Canvas 2D. Zero runtime dependencies; wrangler is a deploy-time tool only.",
+  "homepage": "https://github.com/Nou4r/nours-casino",
+  "license": "UNLICENSED",
+  "scripts": {
+    "serve": "python -m http.server 8080",
+    "check": "node tools/check-syntax.mjs",
+    "login": "wrangler login",
+    "whoami": "wrangler whoami",
+    "dev": "wrangler dev --persist-to ../.nours-casino-wrangler-state",
+    "predeploy": "npm run check",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.114.0"
+  }
+}

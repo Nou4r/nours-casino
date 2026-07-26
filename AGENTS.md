@@ -2,7 +2,8 @@
 
 A standalone, dependency-free, provably-fair casino suite modelled on Gamdom's Originals
 (`gamdom.com/plinko`, `/crash`, `/twist`, `/limbo`, …). Pure ES modules + Canvas 2D.
-**No build step, no npm, no framework, no CDN assets.** Open `index.html` over HTTP and it runs.
+**No build step, no framework, no CDN-hosted JS/CSS, no runtime dependency.** Open `index.html`
+over HTTP and it runs. (`package.json` exists only for the Cloudflare deploy toolchain — see §13.)
 It opens on a **lobby** (§4a) — the eleven games are entered from there or by hash route.
 
 ---
@@ -18,6 +19,8 @@ python -m http.server 8080
 Syntax gate (the only "test suite" this project has):
 
 ```bash
+npm run check   # tools/check-syntax.mjs — cross-platform, also runs as predeploy
+# or, with no Node tooling installed:
 for f in js/*.js js/games/*.js js/math/*.js js/render/*.js; do node --check "$f" || echo "FAIL $f"; done
 ```
 
@@ -54,6 +57,12 @@ js/games/hilo.js     1477         Higher/lower card guessing, progressive multip
 js/games/keno.js     1159         40-tile grid, 10 picks, match payout table
 js/games/mines.js    1372         5×5 grid, 1–20 mines via preset select (module clamps 1–24)
 js/games/blackjack.js 1480        Classic 21 vs dealer, hit/stand/double
+
+wrangler.jsonc         22 lines   Cloudflare assets-only Worker (no `main`) ← read §13
+.assetsignore          31 lines   ALLOW-LIST of publishable files. Read BEFORE adding a root file ← §13
+_headers               29 lines   Edge security + cache headers, parsed by Cloudflare, never served
+package.json           22 lines   Deploy toolchain only; `wrangler` is the sole devDependency
+tools/check-syntax.mjs 42 lines   Cross-platform `node --check` gate (`npm run check`)
 ```
 
 `index.html` loads exactly one script: `<script type="module" src="js/app.js">`. Everything
@@ -683,3 +692,69 @@ frame-rate profiling under load.
    `balance === START_BALANCE + adjusted − wagered + returned` still holds. For the peek,
    compare against the round's recorded outcome, never against a second call to the same
    calculator. Also start a round and confirm a profile switch is refused mid-stake.
+
+---
+
+## 13. Deployment (GitHub Pages + Cloudflare Workers)
+
+Two independent, simultaneously-live surfaces. Neither knows about the other.
+
+|Surface|Serves|Config|Headers|
+|---|---|---|---|
+|GitHub Pages|the whole repo root from `main`|`.nojekyll`|**none** — Pages has no `_headers` support|
+|Cloudflare Workers|the `.assetsignore` subset|`wrangler.jsonc`|`_headers`, applied at the edge|
+
+```bash
+npm install && npm run login && npm run deploy
+# → https://nours-casino.<subdomain>.workers.dev
+```
+
+`wrangler.jsonc` has **no `main`**: this is an assets-only Worker, so no Worker code exists
+and none runs. `not_found_handling` is `"none"` on purpose — routing is hash-based, so the
+origin only ever sees `/`, and an honest 404 makes both a broken import and an unpublished
+file observable instead of masked behind an SPA fallback.
+
+### `.assetsignore` is an allow-list, and that is the point
+
+The assets directory is the repo root (so Pages and Cloudflare serve the same tree), and
+**wrangler does not read `.gitignore`** — it uploads everything it walks. `.assetsignore`
+therefore ignores `/*` and re-admits only `index.html`, `styles.css`, `css/`, `js/`.
+
+A deny-list fails silently: drop a `secrets.txt` in the root and it ships. An allow-list fails
+loudly: forget to re-admit a folder and the site 404s in your face. `cookies.txt` — a live
+session cookie jar — sits in this repo root, which is exactly why this file is written the way
+it is. **Read `.assetsignore` before adding a root-level file.**
+
+Verified by curl against `wrangler dev`: `index.html`, `styles.css`, `css/*`, `js/**` all 200;
+`cookies.txt`, `package.json`, `wrangler.jsonc`, `.assetsignore`, `_headers`, `AGENTS.md`,
+`README.md`, `.gitignore`, `start.bat`, `.nojekyll`, `tools/*`, `node_modules/**` and `.git/**`
+all 404.
+
+### Two traps worth knowing
+
+1. **`wrangler deploy --dry-run` prints "Read N files from the assets directory" BEFORE applying
+   `.assetsignore`.** It reported 2041 files (i.e. all of `node_modules` and `.git`) with an
+   allow-list that in fact publishes 20-odd. The number is not a manifest. Verify what is
+   actually served with `wrangler dev` + curl, never by reading that line.
+2. **`wrangler dev` reload-loops when the assets directory is the repo root.** It watches that
+   directory and writes its own state into `.wrangler/` inside it, so it detects its own writes
+   and reloads several times a second, forever. `npm run dev` passes
+   `--persist-to ../.nours-casino-wrangler-state` to park the state outside the tree. For normal
+   frontend work use `npm run serve`; `wrangler dev` is only needed to exercise `_headers`, the
+   CSP, or 404 behaviour.
+
+### `_headers`
+
+Excluded from the allow-list so it is parsed but never downloadable (wrangler still reads it
+from the assets directory — confirmed: "Parsed 4 valid header rules" with the file ignored, and
+the rules present on every response). The CSP is `script-src 'self'` with no loosening, because
+there is not one inline `<script>` or `on*=` handler in `index.html`. Its two allowances are
+load-bearing and must survive any future edit:
+
+- `style-src 'unsafe-inline'` — 29 inline `style="--accent:…"` attributes on the lobby cards.
+- `img-src data:` — the favicon is an inline `data:image/svg+xml` URI.
+
+Adding a game means adding a lobby card with an inline `--accent` style; that is already
+covered. Adding an inline `<script>`, a `fetch()` to another origin, or an `<img src="https://…">`
+is not — update the CSP in the same commit, and re-verify with a browser console open, because
+a CSP violation is silent in the network tab and fatal to the stage.

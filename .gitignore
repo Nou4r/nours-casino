@@ -8,7 +8,9 @@ cookies.txt
 Thumbs.db
 desktop.ini
 
-# Nothing is built or installed here, but keep strays out anyway.
+# The site itself installs nothing; these come from the wrangler deploy toolchain.
 node_modules/
+.wrangler/
+.dev.vars
 dist/
 *.log

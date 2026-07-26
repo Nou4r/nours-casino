@@ -1,0 +1,31 @@
+# What Cloudflare is allowed to publish. Read this before adding a root-level file.
+#
+# The assets directory is the repo root, and wrangler does NOT read .gitignore --
+# it uploads every file it finds. So this is an ALLOW-LIST, not a deny-list:
+# ignore everything at the root, then re-admit only the site itself.
+#
+# Failure mode of an allow-list is a missing file (loud). Failure mode of a
+# deny-list is publishing cookies.txt to the public internet (silent). Hence this.
+#
+# Syntax is .gitignore's, and `/*` only matches top-level entries, so re-admitting
+# a directory re-admits everything under it.
+
+/*
+
+!/index.html
+!/styles.css
+!/css
+!/js
+
+# `_headers` deliberately stays OUT of the allow-list. Wrangler still reads it from
+# the assets directory and applies its rules at the edge; listing it here only stops
+# it being served as a downloadable file. (Same pattern as the Pages migration docs.)
+
+# Belt and braces. These are listed again, after the negations, so that a careless
+# edit above still cannot publish them.
+cookies.txt
+.git
+.github
+.wrangler
+.dev.vars
+node_modules

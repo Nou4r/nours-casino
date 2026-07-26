@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nours-casino",
+  "compatibility_date": "2026-07-26",
+
+  // Assets-only Worker: there is no `main`, so Cloudflare serves this directory
+  // straight from the edge and no Worker code ever runs. The site is fully static.
+  //
+  // The assets directory is the repo root because that is also what GitHub Pages
+  // serves. Wrangler does NOT read .gitignore, so `.assetsignore` (allow-list) is
+  // the only thing keeping local-only files — notably cookies.txt — off the edge.
+  // Read .assetsignore before adding a file to the project root.
+  "assets": {
+    "directory": "./",
+
+    // Routing is hash-based (`#/crash`), so the origin only ever sees "/" and
+    // SPA fallback would buy nothing. Explicit "none" keeps 404s honest: a missing
+    // module 404s instead of returning index.html and failing a MIME-type check,
+    // and an unpublished file (cookies.txt) is verifiably absent rather than masked.
+    "not_found_handling": "none"
+  }
+}

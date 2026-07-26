@@ -3,12 +3,16 @@
 **Eleven provably-fair casino Originals. Zero dependencies, zero build step, zero backend.**
 
 A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice,
-Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. There is
-no npm, no bundler, no framework, no CDN-hosted JS or CSS, and not a single image, sprite or
-audio file: every pixel on every stage is drawn procedurally at runtime and every sound is
-synthesised. The one external request in the whole app is the Google Fonts stylesheet for
+Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
+has no bundler, no framework, no runtime dependency, no CDN-hosted JS or CSS, and not a single
+image, sprite or audio file: every pixel on every stage is drawn procedurally and every sound
+is synthesised. The one external request the app makes is the Google Fonts stylesheet for
 Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it falls back to the
 system stack and runs fully offline.
+
+`package.json` exists only for the Cloudflare deploy toolchain — `wrangler` is the sole
+devDependency and nothing it installs is ever shipped to the browser. Skip `npm install`
+entirely and the site still runs.
 
 **▶ Play it: [nou4r.github.io/nours-casino](https://nou4r.github.io/nours-casino/)**
 
@@ -38,6 +42,7 @@ Windows users can just double-click `start.bat`.
 - [The money invariant](#the-money-invariant)
 - [Shared canvas theme](#shared-canvas-theme)
 - [Development](#development)
+- [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [Adding a twelfth game](#adding-a-twelfth-game)
 - [Browser support & accessibility](#browser-support--accessibility)
 - [Disclaimer](#disclaimer)
@@ -238,6 +243,12 @@ js/math/provably-fair.js  HMAC-SHA256 outcomes, seed pair, verifier, SHA-256 fal
 js/math/multipliers.js  Plinko payout tables (8–16 rows × 3 risks) + binomial/RTP math
 
 js/games/{crash,twist,limbo,roulette,dice,hilo,keno,mines,blackjack}.js
+
+wrangler.jsonc          Cloudflare assets-only Worker config (no `main`, no Worker code)
+.assetsignore           ALLOW-LIST of what Cloudflare may publish — read before adding a root file
+_headers                Edge security + cache headers (parsed by Cloudflare, never served)
+package.json            Deploy toolchain only; `wrangler` is the sole devDependency
+tools/check-syntax.mjs  Cross-platform `node --check` gate (`npm run check`)
 ```
 
 ~23k lines total. `dice.js` backs both the **Dice** and **Pocket Dice** tabs.
@@ -305,7 +316,14 @@ base `#070b12` → `#0d1420`. Each stage adds one accent glow for its own identi
 
 There is no toolchain to install. Edit a file, reload the page.
 
-The only automated gate is a syntax check:
+The only automated gate is a syntax check, which runs on any platform:
+
+```bash
+npm run check          # → "OK  17 modules parsed cleanly."
+```
+
+It also runs automatically as `predeploy`, so a module that won't parse can't reach the edge.
+Without Node tooling the equivalent POSIX one-liner is:
 
 ```bash
 for f in js/*.js js/games/*.js js/math/*.js js/render/*.js; do node --check "$f" || echo "FAIL $f"; done
@@ -322,6 +340,79 @@ Read it before making a non-trivial change.
 
 Not present: automated regression tests, cross-browser CI, per-game RTP convergence runs over
 large samples.
+
+---
+
+## Deploy to Cloudflare
+
+The site deploys as an **assets-only Worker** — `wrangler.jsonc` has no `main`, so no Worker
+code exists and no Worker code runs. Cloudflare serves the files straight from the edge.
+
+```bash
+npm install            # one-time; installs wrangler as the only devDependency
+npm run login          # opens a browser, authorises YOUR Cloudflare account
+npm run deploy         # → https://nours-casino.<your-subdomain>.workers.dev
+```
+
+That is the whole flow. Rename the Worker by changing `name` in `wrangler.jsonc`. To preview
+the exact upload without touching your account, run `npm run deploy:dry`.
+
+### `.assetsignore` is the only thing keeping private files off the edge
+
+The assets directory is the repo root, because that is also what GitHub Pages serves. **Wrangler
+does not read `.gitignore`** — it uploads every file it finds. So `.assetsignore` is written as
+an *allow-list*: ignore everything at the root, then re-admit `index.html`, `styles.css`, `css/`
+and `js/`.
+
+That direction is deliberate. An allow-list fails loudly (a missing file 404s); a deny-list fails
+silently (a new `secrets.txt` in the root gets published). `cookies.txt`, `.git/`, `node_modules/`,
+`package.json`, `AGENTS.md` and `tools/` are all verified absent from the served output.
+
+**Read `.assetsignore` before adding a file to the project root.**
+
+### Headers
+
+`_headers` is parsed by Cloudflare and applied at the edge; it is excluded from the allow-list so
+it is never downloadable. It sets `nosniff`, `X-Frame-Options: DENY`, a `Referrer-Policy`, a
+`Permissions-Policy`, and a CSP tight enough to be meaningful:
+
+```
+default-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none';
+frame-ancestors 'none'; form-action 'none'; base-uri 'self';
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+font-src  'self' https://fonts.gstatic.com;
+img-src   'self' data:;
+```
+
+Only two allowances are load-bearing: `'unsafe-inline'` in `style-src` (29 inline
+`style="--accent:…"` attributes in `index.html`) and `data:` in `img-src` (the favicon is an
+inline SVG data URI). There are no inline `<script>` blocks and no inline event handlers, so
+`script-src 'self'` holds with nothing loosened. Verified: the app boots and plays a full round
+under this CSP with zero violations.
+
+### `npm run dev` needs `--persist-to` outside the tree
+
+`wrangler dev` watches its assets directory, which here is the repo root — and it writes its own
+local state into `.wrangler/` *inside* that directory. Left alone it detects its own writes and
+reload-loops forever, several times a second. The `dev` script therefore parks that state in a
+sibling folder:
+
+```bash
+wrangler dev --persist-to ../.nours-casino-wrangler-state
+```
+
+For plain frontend work you do not need any of this — `npm run serve` (or `start.bat`) is faster
+and has no such trap. Reach for `wrangler dev` only to test `_headers`, the CSP, or 404 behaviour.
+
+### GitHub Pages still works
+
+Pages and Cloudflare are independent and can both be live: Pages serves the repo root from the
+`main` branch (`.nojekyll` keeps it verbatim), Cloudflare serves the `.assetsignore` subset.
+Neither knows about the other.
+
+One asymmetry worth knowing: **GitHub Pages has no `_headers` support**, so the CSP and the
+security headers above apply to the Cloudflare deployment only. The Pages demo linked at the top
+of this README runs with GitHub's default headers.
 
 ---
 

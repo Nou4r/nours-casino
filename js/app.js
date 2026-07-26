@@ -18,6 +18,7 @@ import { MinesGame } from './games/mines.js';
 import { BlackjackGame } from './games/blackjack.js';
 import { peekCheat, peekSignature } from './cheats.js';
 import * as Accounts from './accounts.js';
+import { initNative, haptic } from './native.js';
 
 /* ------------------------------ Constants ------------------------------ */
 
@@ -1148,6 +1149,7 @@ async function autoTick() {
 }
 
 function primaryAction() {
+  haptic('tap');   // no-op off-native; fire-and-forget, never awaited
   if (state.mode === 'auto') {
     auto.running ? stopAuto('Auto stopped') : startAuto();
     audio?.playButtonClick();
@@ -1491,6 +1493,8 @@ function recordGenericRound(mult, betAmount, payout, game = null, crashMult = nu
   updateLiveBetsTable('YOU (Player)', mult, payout);
   save();
   renderCheats();
+  // Win/loss feedback on device. `mult` is 0 on a loss. Inert in a browser.
+  haptic(mult >= 10 ? 'big' : mult > 0 ? 'win' : 'loss');
 }
 
 async function playCrash() {
@@ -3144,10 +3148,26 @@ async function init() {
     state, pending, physics, crash, twist, limbo, roulette, pocketDice, dice, hilo, keno, mines, blackjack, audio, auto,
     dropOne, playCrash, playTwist, cashoutTwist, playLimbo, playRoulette, playPocketDice, playDice, playHilo, guessHilo, cashoutHilo, playKeno, playMines, cashoutMines, playBlackjack, startAuto, stopAuto, settle,
     selectGame, enterGame, showLobby, applyLobbyFilter,
+    closeModal, openModals,
     setCheat, renderCheats, cheatCtx,
     setCustomize, renderCustomize, applyCustomize, effectivePayout, payoutScale,
     Accounts, switchUser, renderAccounts, snapshot, applySnapshot, bootProfiles,
   };
+
+  // Native shell bridge. No-ops in a browser (no `Capacitor` global), so this is
+  // inert for the Cloudflare/Pages build. It must run AFTER `window.plinko` is
+  // assigned — the hardware-back handler dereferences closeModal/openModals/
+  // showLobby off it.
+  //
+  // NOT optional in the packaged app: `capacitor.config.js` sets
+  // `launchAutoHide: false`, so `SplashScreen.hide()` here is the only thing that
+  // ever takes the splash down. Drop this call and the APK boots to a splash
+  // screen that never goes away — no error, no crash, just a dead app.
+  try {
+    await initNative();
+  } catch (err) {
+    console.warn('[plinko] native bridge failed to initialise', err);
+  }
 }
 
 if (document.readyState === 'loading') {

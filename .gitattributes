@@ -1,0 +1,31 @@
+# Line endings.
+#
+# This repo is authored on Windows but built on Linux and macOS CI runners, which
+# is exactly the situation that silently breaks shell scripts. `android/gradlew`
+# is a POSIX shell script: if Git ever checks it out with CRLF, the runner fails
+# with a `bad interpreter: /bin/sh^M` error that looks nothing like a line-ending
+# problem. Normalising to LF in the repository prevents that class of bug for
+# every text file, and the two exceptions below cover the cases that genuinely
+# need CRLF or must not be touched at all.
+
+* text=auto eol=lf
+
+# Windows-only launcher — cmd.exe wants CRLF.
+*.bat text eol=crlf
+
+# Gradle wrapper: LF, always, no exceptions. Stated explicitly rather than left
+# to `text=auto` so it survives someone relaxing the rule above.
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+
+# Binary: never munge, never diff as text.
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.woff2 binary
+*.jar binary
+*.apk binary
+*.aab binary
+*.keystore binary
+*.jks binary

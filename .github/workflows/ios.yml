@@ -1,0 +1,136 @@
+# What this proves: the iOS side actually compiles. On a real macOS runner it
+# scaffolds ios/ if needed, runs `npx cap sync ios` (which is mandatory — see
+# below), and builds the App scheme for the simulator with signing switched off.
+# If this job is green, the Swift side, the Capacitor plugin packages and the
+# generated www/ payload are all sound.
+#
+# Why `cap sync ios` is not optional here: Capacitor 8 wires its plugins through
+# Swift Package Manager, not CocoaPods. There is no Podfile, no Pods/ and no
+# .xcworkspace in this project — `pod install` has nothing to read. What there IS
+# is ios/App/CapApp-SPM/Package.swift, and when that file is generated on Windows
+# it comes out with Windows path separators
+# (`path: "..\..\..\node_modules\@capacitor\app"`), which Swift cannot parse.
+# `cap sync ios` regenerates it correctly on macOS and copies www/ into
+# ios/App/App/public. Skip it and the build fails on the manifest, not on code.
+#
+# What this deliberately does NOT do: it does not sign anything, does not archive,
+# does not produce an .ipa, and cannot be uploaded to TestFlight or the App Store.
+# That is not a tooling gap — an unsigned simulator build needs no Apple account,
+# but a distributable .ipa needs a paid Apple Developer Program membership plus a
+# distribution certificate and provisioning profile loaded into the runner
+# keychain. The commented block at the bottom is the exact path for when you have
+# those. Until then this job is a compile gate, nothing more.
+
+name: iOS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Unsigned simulator build
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # 22, not 20 — see the note in android.yml: require(ESM) for
+          # capacitor.config.js needs Node 22.12+.
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate www/
+        run: npm run build
+
+      # ios/ is a generated native tree and may be gitignored or absent.
+      - name: Add the iOS platform if it is missing
+        run: |
+          if [ ! -d ios ]; then
+            npx cap add ios
+          fi
+
+      # REQUIRED before xcodebuild: copies www/ into ios/App/App/public and
+      # regenerates CapApp-SPM/Package.swift with POSIX paths.
+      - name: Sync web assets and regenerate the SPM manifest
+        run: npx cap sync ios
+
+      - name: List the available schemes
+        working-directory: ios/App
+        run: xcodebuild -project App.xcodeproj -list
+
+      - name: Build for the simulator without signing
+        working-directory: ios/App
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # ---------------------------------------------------------------------
+      # Signed archive path — uncomment once you hold a paid Apple Developer
+      # Program membership ($99/year) and have added these repository secrets:
+      #
+      #   IOS_DIST_CERT_P12        base64 of your exported Apple Distribution .p12
+      #   IOS_DIST_CERT_PASSWORD   the password you set when exporting that .p12
+      #   IOS_PROVISIONING_PROFILE base64 of the matching .mobileprovision
+      #   IOS_TEAM_ID              your 10-character Apple Developer Team ID
+      #
+      # Base64 a file on Windows with:
+      #   certutil -encode dist.p12 dist.p12.txt
+      # and strip the BEGIN/END lines, or on macOS/Linux with:
+      #   base64 -i dist.p12 | pbcopy
+      #
+      # - name: Import the signing certificate
+      #   uses: apple-actions/import-codesign-certs@v3
+      #   with:
+      #     p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
+      #     p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+      #
+      # - name: Install the provisioning profile
+      #   run: |
+      #     mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+      #     echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 --decode \
+      #       > ~/Library/MobileDevice/Provisioning\ Profiles/build.mobileprovision
+      #
+      # - name: Archive
+      #   working-directory: ios/App
+      #   run: |
+      #     xcodebuild \
+      #       -project App.xcodeproj \
+      #       -scheme App \
+      #       -sdk iphoneos \
+      #       -configuration Release \
+      #       -archivePath "$RUNNER_TEMP/App.xcarchive" \
+      #       DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
+      #       archive
+      #
+      # - name: Export the .ipa
+      #   working-directory: ios/App
+      #   run: |
+      #     xcodebuild \
+      #       -exportArchive \
+      #       -archivePath "$RUNNER_TEMP/App.xcarchive" \
+      #       -exportOptionsPlist ExportOptions.plist \
+      #       -exportPath "$RUNNER_TEMP/export"
+      #
+      # - name: Publish the .ipa
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: nours-casino-ipa
+      #     path: ${{ runner.temp }}/export/*.ipa
+      # ---------------------------------------------------------------------

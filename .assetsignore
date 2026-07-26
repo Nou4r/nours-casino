@@ -17,6 +17,17 @@
 !/css
 !/js
 
+# `fonts/` is published even though the WEB build does not currently use it:
+# index.html loads Inter + Roboto Mono from the Google Fonts CDN, and only the
+# PACKAGED native build swaps in the vendored faces (scripts/build-www.mjs strips
+# the CDN tags and links css/fonts.css when it produces www/ — see MOBILE.md).
+#
+# Kept admitted deliberately: it costs ~185 KB of edge storage and nothing at
+# runtime, and it means the moment anyone drops the CDN from index.html the site
+# keeps its typography instead of silently falling back to a system stack. The
+# failure this prevents is invisible in review and obvious to every visitor.
+!/fonts
+
 # `_headers` deliberately stays OUT of the allow-list. Wrangler still reads it from
 # the assets directory and applies its rules at the edge; listing it here only stops
 # it being served as a downloadable file. (Same pattern as the Pages migration docs.)
@@ -29,3 +40,17 @@ cookies.txt
 .wrangler
 .dev.vars
 node_modules
+
+# Native packaging + local toolchain. All top-level, so the `/*` rule above already
+# excludes them; repeated here because the cost of being wrong is publishing a JDK,
+# an Android SDK and a signed APK to the public edge. `.toolchain/` alone is ~6.5 GB.
+.toolchain
+android
+ios
+www
+resources
+icons
+scripts
+tools
+*.apk
+*.aab

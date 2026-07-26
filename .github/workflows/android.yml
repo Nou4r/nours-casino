@@ -1,0 +1,82 @@
+# What this proves: on a clean machine that has never seen this repo, the Android
+# app builds end to end — npm ci, `www/` generation, Capacitor sync, and a full
+# Gradle compile — and produces an APK you can actually install on a phone.
+#
+# What this deliberately does NOT do: it does not sign a release build, does not
+# produce the .aab Google Play requires, does not run tests (this project has no
+# test suite — see AGENTS.md §1), and does not upload anything to Google Play.
+# The debug APK is signed with the throwaway debug keystore Gradle generates on
+# the runner: fine for sideloading, useless for distribution. Release signing
+# needs the keystore described in MOBILE.md §5, which must never be committed to
+# this repo or pasted into this file.
+
+name: Android
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # 22, not 20: capacitor.config.js is ESM (named exports, see MOBILE.md §6)
+          # and the Capacitor CLI loads it with require(). require(ESM) only landed
+          # unflagged in Node 22.12 — on 20 the config resolves empty and the build
+          # silently falls back to Capacitor defaults, including a different
+          # WebView origin.
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate www/
+        run: npm run build
+
+      # android/ is a generated native tree and may be gitignored or simply not
+      # committed yet. Scaffold it on demand so this workflow works either way.
+      # `cap add` is a no-op-with-error if the directory already exists, hence
+      # the guard rather than an unconditional call.
+      - name: Add the Android platform if it is missing
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
+      - name: Copy web assets into the native project
+        run: npx cap sync android
+
+      - name: Assemble the debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Publish the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nours-casino-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30

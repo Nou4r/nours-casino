@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nour\'s Casino</string>
+    <string name="title_activity_main">Nour\'s Casino</string>
+    <string name="package_name">com.nourscasino.app</string>
+    <string name="custom_url_scheme">com.nourscasino.app</string>
+</resources>

@@ -6,13 +6,16 @@ A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, 
 Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
 has no bundler, no framework, no runtime dependency, no CDN-hosted JS or CSS, and not a single
 image, sprite or audio file: every pixel on every stage is drawn procedurally and every sound
-is synthesised. The one external request the app makes is the Google Fonts stylesheet for
-Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it falls back to the
-system stack and runs fully offline.
+is synthesised. The one external request the **web** build makes is the Google Fonts stylesheet
+for Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it falls back to
+the system stack and runs fully offline. The **packaged native app** never makes it at all:
+`scripts/build-www.mjs` strips those tags when it generates `www/` and links `css/fonts.css`
+instead, which serves four vendored variable-font `.woff2` files out of `fonts/`.
 
-`package.json` exists only for the Cloudflare deploy toolchain — `wrangler` is the sole
-devDependency and nothing it installs is ever shipped to the browser. Skip `npm install`
-entirely and the site still runs.
+`package.json` carries two toolchains and ships neither to the browser: `wrangler` for the
+Cloudflare deploy, and Capacitor for the [native app](#native-app-android--ios) —
+`@capacitor/core` plus four plugins as dependencies, and `@capacitor/cli`, `android`, `ios`,
+`assets` and `sharp` as devDependencies. Skip `npm install` entirely and the site still runs.
 
 **▶ Play it: [nou4r.github.io/nours-casino](https://nou4r.github.io/nours-casino/)**
 
@@ -43,6 +46,7 @@ Windows users can just double-click `start.bat`.
 - [Shared canvas theme](#shared-canvas-theme)
 - [Development](#development)
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
+- [Native app (Android & iOS)](#native-app-android--ios)
 - [Adding a twelfth game](#adding-a-twelfth-game)
 - [Browser support & accessibility](#browser-support--accessibility)
 - [Disclaimer](#disclaimer)
@@ -250,6 +254,8 @@ index.html              Markup: topbar, lobby + 11 inline SVG card scenes, contr
 styles.css              Base theme, layout grid, components, responsive
 css/gamdom.css          Colour tokens, live-bets skin, chrome polish, cheat panel   (loaded 2nd)
 css/lobby.css           Lobby design system: routes, hero, grid, card-art keyframes (loaded last)
+css/fonts.css           @font-face for the four vendored faces — linked in the packaged build only
+fonts/                  Inter + Roboto Mono variable .woff2, latin + latin-ext (native app only)
 start.bat               Windows launcher (python http.server + opens browser)
 
 js/app.js               Controller: state, wallet, history, stats, auto mode, routing, all wiring
@@ -257,6 +263,7 @@ js/accounts.js          Named profiles in localStorage + export/import codes
 js/cheats.js            Outcome peek for all 11 games (pure — never mutates anything)
 js/physics.js           Plinko board: peg pyramid, ball sim, bucket VFX
 js/audio.js             Web Audio synthesiser — zero audio files
+js/native.js            Capacitor bridge — status bar, splash, back button, haptics; inert in a browser
 js/render/theme.js      Shared canvas primitives: palette, paintStage, peg/chip/tile/card/…
 js/math/provably-fair.js  HMAC-SHA256 outcomes, seed pair, verifier, SHA-256 fallback
 js/math/multipliers.js  Plinko payout tables (8–16 rows × 3 risks) + binomial/RTP math
@@ -266,11 +273,22 @@ js/games/{crash,twist,limbo,roulette,dice,hilo,keno,mines,blackjack}.js
 wrangler.jsonc          Cloudflare assets-only Worker config (no `main`, no Worker code)
 .assetsignore           ALLOW-LIST of what Cloudflare may publish — read before adding a root file
 _headers                Edge security + cache headers (parsed by Cloudflare, never served)
-package.json            Deploy toolchain only; `wrangler` is the sole devDependency
+package.json            Deploy (`wrangler`) + packaging (Capacitor) toolchains; nothing ships to browser
 tools/check-syntax.mjs  Cross-platform `node --check` gate (`npm run check`)
+
+capacitor.config.js     Native app id, WebView origin, plugin config — read the warning inside
+scripts/build-www.mjs   Generates `www/` from the root sources; swaps the CDN fonts for local ones
+scripts/check.mjs       `npm run check:cap` — parse `js/**` + audit `capacitor.config.js`
+android/                Committed Gradle project (Capacitor output; build dirs are gitignored)
+ios/                    Committed Xcode project — SPM, no Podfile, no `.xcworkspace`
+resources/              Icon + splash source art for `@capacitor/assets`
+.github/workflows/      android.yml (debug APK) · ios.yml (unsigned simulator build)
+MOBILE.md               Full native guide: setup, APK, signing, iOS, store + gambling policy
 ```
 
 ~23k lines total. `dice.js` backs both the **Dice** and **Pocket Dice** tabs.
+
+`www/`, `.toolchain/` and `*.apk` are gitignored build artifacts — generated, never committed.
 
 ---
 
@@ -338,7 +356,7 @@ There is no toolchain to install. Edit a file, reload the page.
 The only automated gate is a syntax check, which runs on any platform:
 
 ```bash
-npm run check          # → "OK  17 modules parsed cleanly."
+npm run check          # → "OK  18 modules parsed cleanly."
 ```
 
 It also runs automatically as `predeploy`, so a module that won't parse can't reach the edge.
@@ -368,7 +386,7 @@ The site deploys as an **assets-only Worker** — `wrangler.jsonc` has no `main`
 code exists and no Worker code runs. Cloudflare serves the files straight from the edge.
 
 ```bash
-npm install            # one-time; installs wrangler as the only devDependency
+npm install            # one-time; brings in wrangler (and the Capacitor toolchain)
 npm run login          # opens a browser, authorises YOUR Cloudflare account
 npm run deploy         # → https://nours-casino.<your-subdomain>.workers.dev
 ```
@@ -432,6 +450,90 @@ Neither knows about the other.
 One asymmetry worth knowing: **GitHub Pages has no `_headers` support**, so the CSP and the
 security headers above apply to the Cloudflare deployment only. The Pages demo linked at the top
 of this README runs with GitHub's default headers.
+
+---
+
+## Native app (Android & iOS)
+
+**Capacitor 8.4.2** wraps this exact codebase in a real native project — a Gradle/Android Studio
+project under `android/`, an Xcode project under `ios/` — whose single screen is a full-bleed
+system WebView loading the app from inside the bundle, plus a JS↔native plugin bridge. It is not
+a PWA, not an "Add to Home Screen" shortcut, not a webview pointed at a URL, and not a rewrite:
+the same `index.html` and `js/**` run on the phone and in desktop Chrome. Both native projects
+are committed.
+
+```
+repo root  ──node scripts/build-www.mjs──>  www/  ──npx cap sync──>  android/ + ios/
+```
+
+`www/` is **generated output** and gitignored. Never hand-edit it — the next build wipes it
+without warning, and the repo root stays the source of truth. It is also **not** a byte-copy of
+the root: `index.html` is rewritten on the way through to drop the Google Fonts `<link>` tags and
+link `css/fonts.css` instead. That has to happen at build time, because a render-blocking
+stylesheet request in an offline WebView stalls first paint for the whole DNS timeout, and with
+`launchAutoHide: false` the app then hangs on the splash screen forever. Everything else is
+copied verbatim, so a bug reproduced in a desktop browser is the same bug on device.
+
+| Command | Does |
+|---|---|
+| `npm run build` | Regenerate `www/` from the repo root |
+| `npm run sync` | `check:cap` → `build` → `cap sync` — push the web app into both native projects |
+| `npm run android` | `sync`, then open the Gradle project in Android Studio |
+| `npm run ios` | `sync`, then open the Xcode project (macOS only) |
+| `npm run check:cap` | `node --check` over `js/**` **and** an audit of `capacitor.config.js` |
+
+`check:cap` is deliberately separate from `npm run check`, which stays the Cloudflare deploy gate
+(`tools/check-syntax.mjs`, wired to `predeploy`) — a native-only config audit has no business
+failing a web deploy. `npm run sync` runs `check:cap` first, so the native path cannot skip it.
+The audit is there because `capacitor.config.js` uses top-level *named* exports on purpose:
+Capacitor 8's `.js` config loader does not unwrap `export default`, so the shape every tutorial
+shows resolves to an empty config — silently, including a different WebView origin.
+
+### The native bridge
+
+`js/native.js` is the only module under `js/` that may reference Capacitor, and it reaches the
+plugins exclusively through `window.Capacitor.Plugins` — never a bare `@capacitor/…` import,
+because there is no bundler and a bare specifier would 404 over plain HTTP and take the whole app
+down. In a browser `window.Capacitor` does not exist, `isNative` is false and every export
+returns immediately, which is why the web build is completely unaffected by any of this.
+
+It provides: a dark status bar; the splash screen held until the first painted frame; Android
+hardware-back (topmost modal → close it, game route → lobby, lobby → exit the app); an
+AudioContext resume on app resume, because iOS suspends it on background; and haptics on
+bet / win / loss, throttled to one pulse per 150ms — a 60-ball Plinko drop settles each ball
+separately, and un-throttled that is one continuous buzz rather than feedback.
+
+### Two things that are immutable after release
+
+> **The release keystore.** Android identifies an app by package name *plus* signing certificate,
+> so a build signed with a different key is a different app to every device — it cannot update
+> the installed one, only sit beside it under a new listing with zero users. Lose the `.jks` and
+> that Play listing can never be updated again: no support ticket, no recovery. Back it up in two
+> places the day you create it. (`*.keystore`, `*.jks` and `key.properties` are gitignored.)
+>
+> **`server.androidScheme`, `server.iosScheme` and `server.hostname`.** Capacitor assembles the
+> WebView's origin out of exactly those three keys — `https://localhost` on Android,
+> `capacitor://localhost` on iOS — and `localStorage` is partitioned by origin. Change any one of
+> them and every player's wallet, profiles, seed pairs, nonce and stats are orphaned under an
+> origin nothing reads any more. The app boots to a pristine balance with no error, no console
+> trace and no way back.
+
+Both are pinned in `capacitor.config.js` with the warnings that explain them sitting right above
+the values. `MOBILE.md` §5.5 and §6 are the long form.
+
+### Where this actually stands
+
+A debug APK builds on Windows (`gradlew.bat assembleDebug`) and is v2-signed —
+`com.nourscasino.app`, `versionName 1.0`, `minSdk 24`, `targetSdk 36`, ~6.7 MB — but it has
+**never been launched on a device or emulator.** This machine has no hypervisor, so the emulator
+attaches to `adb` as `offline` and never finishes booting; "compiles and is signed" is all that
+has been proven, and installing it on a real phone is the first genuine test. **iOS has never
+been compiled at all** — that needs macOS. `.github/workflows/android.yml` (debug APK) and
+`.github/workflows/ios.yml` (unsigned simulator build) exist as CI compile gates.
+
+**[`MOBILE.md`](MOBILE.md) is the full guide**: toolchain setup from nothing, building and
+sideloading an APK, release signing, iOS without a Mac, store submission, and the
+simulated-gambling policy rules that are what actually get a casino app rejected.
 
 ---
 

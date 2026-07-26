@@ -3,7 +3,9 @@
 A standalone, dependency-free, provably-fair casino suite modelled on Gamdom's Originals
 (`gamdom.com/plinko`, `/crash`, `/twist`, `/limbo`, …). Pure ES modules + Canvas 2D.
 **No build step, no framework, no CDN-hosted JS/CSS, no runtime dependency.** Open `index.html`
-over HTTP and it runs. (`package.json` exists only for the Cloudflare deploy toolchain — see §13.)
+over HTTP and it runs. (`package.json` carries two build-time toolchains and ships nothing to
+the browser: `wrangler` for the Cloudflare deploy (§13), and Capacitor for the native Android
+and iOS app — see `MOBILE.md`.)
 It opens on a **lobby** (§4a) — the eleven games are entered from there or by hash route.
 
 ---
@@ -61,8 +63,20 @@ js/games/blackjack.js 1720        Classic 21 vs dealer, hit/stand/double
 wrangler.jsonc         22 lines   Cloudflare assets-only Worker (no `main`) ← read §13
 .assetsignore          31 lines   ALLOW-LIST of publishable files. Read BEFORE adding a root file ← §13
 _headers               29 lines   Edge security + cache headers, parsed by Cloudflare, never served
-package.json           22 lines   Deploy toolchain only; `wrangler` is the sole devDependency
-tools/check-syntax.mjs 42 lines   Cross-platform `node --check` gate (`npm run check`)
+package.json           38 lines   Build-time toolchains only (wrangler + Capacitor); nothing reaches the browser
+tools/check-syntax.mjs 42 lines   Cross-platform `node --check` gate (`npm run check`, also `predeploy`)
+
+--- native app (Capacitor). Full guide: MOBILE.md. None of this loads in a browser ---
+capacitor.config.js    96 lines   appId/appName/webDir + the PINNED WebView origin. Named exports, NOT `export default`
+js/native.js          223 lines   The ONLY file allowed to touch Capacitor. No-ops in a browser
+css/fonts.css          67 lines   @font-face for the vendored variable fonts; linked into www/ by the build, not by index.html
+fonts/                4 files     Inter + Roboto Mono, variable woff2, latin + latin-ext (~185 KB)
+scripts/build-www.mjs 176 lines   Produces www/: copies the site, strips the Google Fonts CDN, vendors the faces
+scripts/check.mjs     135 lines   `npm run check:cap` — syntax gate + asserts capacitor.config.js resolves as the CLI reads it
+resources/            5 files     App icon + splash sources (SVG) and their 1024/2732 PNG renders
+android/ ios/         generated   Real Gradle and Xcode projects; committed. Each carries its own .gitignore
+www/                  generated   Capacitor's webDir. Gitignored. NEVER hand-edit — `npm run build` wipes it
+.github/workflows/    2 files     CI: Android APK on ubuntu, iOS simulator build on macOS
 ```
 
 `index.html` loads exactly one script: `<script type="module" src="js/app.js">`. Everything

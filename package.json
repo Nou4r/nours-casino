@@ -2,12 +2,18 @@
   "name": "nours-casino",
   "version": "1.0.0",
   "private": true,
-  "description": "Eleven provably-fair casino Originals in plain ES modules + Canvas 2D. Zero runtime dependencies; wrangler is a deploy-time tool only.",
+  "type": "module",
+  "description": "Eleven provably-fair casino Originals in plain ES modules + Canvas 2D. Zero runtime dependencies; wrangler is a deploy-time tool only, Capacitor a packaging-time one.",
   "homepage": "https://github.com/Nou4r/nours-casino",
   "license": "UNLICENSED",
   "scripts": {
     "serve": "python -m http.server 8080",
     "check": "node tools/check-syntax.mjs",
+    "check:cap": "node scripts/check.mjs",
+    "build": "node scripts/build-www.mjs",
+    "sync": "npm run check:cap && npm run build && cap sync",
+    "android": "npm run sync && cap open android",
+    "ios": "npm run sync && cap open ios",
     "login": "wrangler login",
     "whoami": "wrangler whoami",
     "dev": "wrangler dev --persist-to ../.nours-casino-wrangler-state",
@@ -16,7 +22,19 @@
     "deploy:dry": "wrangler deploy --dry-run",
     "tail": "wrangler tail"
   },
+  "dependencies": {
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.4.2",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.3"
+  },
   "devDependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "8.4.2",
+    "@capacitor/ios": "8.4.2",
+    "sharp": "0.35.2",
     "wrangler": "^4.114.0"
   }
 }

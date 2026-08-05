@@ -1307,49 +1307,42 @@ body[data-route="lobby"] #btn-home { display: none; }
     font-size: 16px;
   }
 
-  /* One scrollable row, edge to edge. The chips line up with the cards but the
-     strip runs out into the gutter, so the clipped last chip reads as "more"
-     instead of the five-chip block wrapping into two rows. */
+  /* Filters are a complete, glanceable control group on phones. Wrapping avoids
+     a clipped final category and removes a swipe-only discovery requirement. */
   .lobby-filters {
-    /* Bleed the scroll strip to both screen edges while the first chip stays
-       aligned with the cards. 4px of block padding, not 0: overflow-x:auto
-       computes overflow-y to auto too, and the global 2px focus ring with its
-       2px offset would otherwise be clipped by the scroll container. */
-    margin: -4px calc(var(--lobby-pad-r) * -1) -4px calc(var(--lobby-pad-l) * -1);
-    padding: 4px var(--lobby-pad-r) 4px var(--lobby-pad-l);
-    gap: 6px;
+    flex-wrap: wrap;
+    overflow: visible;
+    overscroll-behavior-x: auto;
+    scroll-snap-type: none;
+    margin: 0;
+    padding: 2px;
+    gap: 7px;
   }
   .lobby-filter {
+    flex: 1 1 calc(33.333% - 7px);
     min-height: 44px;
-    padding-inline: 16px;
+    padding-inline: 12px;
+    text-align: center;
   }
 
   .lobby-hero__sub { line-height: 1.5; }
   .lobby-hero__actions { gap: 8px; width: 100%; }
   .lobby-hero__actions .btn--lg { flex: 1 1 auto; }
 
-  /* Four stat cards cannot afford two 2-up rows (~120px) and still leave a card
-     row above the fold. One swipeable row keeps every figure at full size — the
-     alternative, a 4-wide grid, wraps the labels and clips "$1,000.00". */
+  /* Every summary value stays visible without horizontal swiping. A compact
+     two-by-two grid costs one extra row but gives the phone screen a stable,
+     native-dashboard rhythm and keeps "Best Win" from being clipped. */
   .lobby-stats {
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(max-content, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row;
     gap: 8px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    scroll-snap-type: x proximity;
-    /* width:auto + stretch, NOT the inherited width:100%: an explicit width
-       plus negative margins only SHIFTS the box left, while a stretched item
-       resolves to container + both margins, which is the actual bleed. */
-    width: auto;
+    overflow: visible;
+    width: 100%;
     align-self: stretch;
-    margin-inline: calc(var(--lobby-pad-l) * -1) calc(var(--lobby-pad-r) * -1);
-    padding-inline: var(--lobby-pad-l) var(--lobby-pad-r);
+    margin: 0;
+    padding: 0;
   }
-  .lobby-stats::-webkit-scrollbar { display: none; }
-  .lobby-stat { scroll-snap-align: start; }
+  .lobby-stat { min-width: 0; }
 
   /* The lobby is the only way back to the games once .game-nav starts
      scrolling, so the home button must survive every narrow breakpoint. */

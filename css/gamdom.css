@@ -869,6 +869,7 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-height: 46px;
   padding: 10px 12px;
   border: 1px dashed rgba(148, 163, 184, .26);
   border-radius: var(--r-sm);

@@ -94,6 +94,7 @@
     <nav class="topbar__actions" id="topbar-actions" aria-label="Game tools">
       <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-cheat" title="Toggle cheat mode" aria-label="Toggle cheat mode" aria-pressed="false">
         <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-eye" /></svg>
+        <span class="tool-sheet-label">Cheat</span>
       </button>
       <button type="button" class="btn btn--ghost btn--sm" id="btn-account" title="Player profile" aria-label="Player profile" aria-haspopup="dialog" aria-controls="modal-account">
         <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-user" /></svg>
@@ -102,9 +103,11 @@
       </button>
       <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-custom" title="Customize balance, house edge and limits" aria-label="Customize balance, house edge and limits">
         <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-sliders" /></svg>
+        <span class="tool-sheet-label">Customize</span>
       </button>
       <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-reset" title="Reset balance, stats and history" aria-label="Reset session">
         <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-refresh" /></svg>
+        <span class="tool-sheet-label">Reset</span>
       </button>
       <button type="button" class="btn btn--ghost" id="btn-stats" aria-haspopup="dialog" aria-controls="modal-stats">
         <svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-chart" /></svg>
@@ -117,10 +120,11 @@
       <button type="button" class="btn btn--ghost btn--icon" id="btn-mute" aria-pressed="false" title="Mute sound (M)" aria-label="Mute sound">
         <svg class="ico ico--on" width="17" height="17" aria-hidden="true"><use href="#i-volume" /></svg>
         <svg class="ico ico--off" width="17" height="17" aria-hidden="true"><use href="#i-mute" /></svg>
+        <span class="tool-sheet-label">Sound</span>
       </button>
     </nav>
 
-    <!-- Phone-only. Below 720px .topbar__actions becomes a bottom sheet so the
+    <!-- Compact-header control. Below 960px .topbar__actions becomes a bottom sheet so the
          header is one 56px row and the game gets the space; this is its handle.
          The tools themselves are NOT duplicated here — the same seven buttons
          above are what the sheet shows, so every existing handler still owns
@@ -134,7 +138,7 @@
 </header>
 
 <!-- ================================= LOBBY ================================= -->
-<section id="lobby" class="lobby" aria-label="Game lobby">
+<main id="lobby" class="lobby" aria-label="Game lobby">
   <div class="lobby__bg" aria-hidden="true">
     <span class="lobby__orb lobby__orb--a"></span>
     <span class="lobby__orb lobby__orb--b"></span>
@@ -536,9 +540,10 @@
   <footer class="lobby-foot">
     <p>Nour's Casino is 100% play-money and provably fair. All roll outcomes are cryptographic and verifiable.</p>
   </footer>
-</section>
+</main>
 
-<main class="layout" id="main">
+<main class="layout" id="main" aria-labelledby="game-page-title">
+  <h1 class="sr-only" id="game-page-title">Plinko</h1>
 
   <!-- ------------------------------- SIDEBAR ------------------------------- -->
   <aside class="panel controls" aria-label="Bet controls">
@@ -836,7 +841,7 @@
   </aside>
 
   <!-- -------------------------------- BOARD -------------------------------- -->
-  <section class="board" aria-label="Plinko board">
+  <section class="board" aria-labelledby="game-page-title">
 
     <div class="history-rail" aria-label="Recent results">
       <div class="history-rail__label">
@@ -1043,10 +1048,10 @@
         <div class="input-group">
           <input class="input input--mono" type="text" id="fair-client" spellcheck="false" autocomplete="off" />
           <div class="input-group__actions">
-            <button type="button" class="chip-btn" id="btn-randomize-client" title="Randomize client seed">
+            <button type="button" class="chip-btn" id="btn-randomize-client" title="Randomize client seed" aria-label="Randomize client seed">
               <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-dice" /></svg>
             </button>
-            <button type="button" class="chip-btn" data-copy="#fair-client" title="Copy">
+            <button type="button" class="chip-btn" data-copy="#fair-client" title="Copy" aria-label="Copy client seed">
               <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
             </button>
           </div>
@@ -1061,7 +1066,7 @@
         <div class="input-group">
           <input class="input input--mono" type="text" id="fair-server-hash" readonly spellcheck="false" />
           <div class="input-group__actions">
-            <button type="button" class="chip-btn" data-copy="#fair-server-hash" title="Copy">
+            <button type="button" class="chip-btn" data-copy="#fair-server-hash" title="Copy" aria-label="Copy active server seed hash">
               <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
             </button>
           </div>
@@ -1081,7 +1086,7 @@
           <div class="input-group">
             <input class="input input--mono" type="text" id="fair-prev-server" readonly placeholder="Rotate to reveal" spellcheck="false" />
             <div class="input-group__actions">
-              <button type="button" class="chip-btn" data-copy="#fair-prev-server" title="Copy">
+              <button type="button" class="chip-btn" data-copy="#fair-prev-server" title="Copy" aria-label="Copy previous server seed">
                 <svg class="ico" width="13" height="13" aria-hidden="true"><use href="#i-copy" /></svg>
               </button>
             </div>

@@ -30,6 +30,7 @@ const SOURCES = [
   { path: 'styles.css', optional: false },
   { path: 'css', optional: false },
   { path: 'js', optional: false },
+  { path: 'assets', optional: false },
   { path: 'fonts', optional: true },
 ];
 

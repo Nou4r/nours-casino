@@ -203,6 +203,36 @@ const pending = new Map();
 
 const auto = { running: false, total: 0, done: 0, timer: null };
 
+/* Asynchronous game actions can remain visually tappable before their game
+   object exposes its own busy state. A fast second tap must not debit twice,
+   skip a nonce, or resolve two steps against the same state. Keep each lock
+   scoped to the active operation so intentional follow-up actions (notably
+   Crash cash-out) remain available as soon as the operation is ready. */
+const actionLocks = new Set();
+
+function renderActionControls(game) {
+  if (game !== 'hilo') return;
+  const pending = actionLocks.has(game);
+  for (const id of ['btn-hilo-higher', 'btn-hilo-lower', 'btn-hilo-same', 'btn-hilo-cashout']) {
+    const control = document.getElementById(id);
+    if (control) control.disabled = pending;
+  }
+}
+
+function beginAction(game) {
+  if (actionLocks.has(game)) return false;
+  actionLocks.add(game);
+  renderActionControls(game);
+  renderDropButton();
+  return true;
+}
+
+function endAction(game) {
+  actionLocks.delete(game);
+  renderActionControls(game);
+  renderDropButton();
+}
+
 let audio      = null;
 let physics    = null;
 let crash      = null;
@@ -610,6 +640,17 @@ const DROP_BTN_LABELS = {
   'blackjack': 'Deal Cards',
 };
 
+const DROP_PENDING_LABELS = {
+  crash: 'Starting…',
+  twist: 'Spinning…',
+  limbo: 'Rolling…',
+  roulette: 'Spinning…',
+  'pocket-dice': 'Rolling…',
+  dice: 'Rolling…',
+  hilo: 'Dealing…',
+  keno: 'Drawing…',
+};
+
 function primaryLabel() {
   const g = state.activeGame || 'plinko';
   if (g === 'crash' && crash?.state === 'running') return 'Cash Out';
@@ -618,6 +659,18 @@ function primaryLabel() {
 
 function renderDropButton() {
   const overdrawn = state.bet > state.balance + 1e-9;
+  const game = state.activeGame || 'plinko';
+  const actionPending = state.mode === 'manual' && actionLocks.has(game);
+  el.btnDrop.setAttribute('aria-busy', String(actionPending));
+
+  if (actionPending) {
+    el.dropLabel.textContent = DROP_PENDING_LABELS[game] || 'Working…';
+    el.dropSub.textContent = 'Please wait';
+    el.btnDrop.classList.remove('is-stop');
+    el.btnDrop.disabled = true;
+    return;
+  }
+
   if (state.mode === 'auto') {
     if (auto.running) {
       el.dropLabel.textContent = 'Stop Auto';
@@ -1195,6 +1248,8 @@ async function playRoulette() {
   if (!roulette) return;
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('roulette')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -1202,6 +1257,7 @@ async function playRoulette() {
   const colorBtn = document.querySelector('#roulette-color-seg .segmented__btn.is-active');
   const chosenColor = colorBtn ? colorBtn.dataset.color : 'red';
   roulette.setBet?.(chosenColor, bet);
+
   try {
     const res = await trackRound(roulette.spin(state.serverSeed, state.clientSeed, nonce));
     if (res && res.payout > 0) {
@@ -1219,6 +1275,8 @@ async function playRoulette() {
     state.balance = round2(state.balance + bet);
     renderBalance(1);
     toast(`Roulette error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('roulette');
   }
 }
 
@@ -1226,6 +1284,8 @@ async function playPocketDice() {
   if (!pocketDice) return;
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('pocket-dice')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -1236,6 +1296,7 @@ async function playPocketDice() {
   pocketDice.setBet?.(bet);
   pocketDice.setCondition?.(cond);
   pocketDice.setTarget?.(target);
+
   try {
     const res = await trackRound(pocketDice.roll(state.serverSeed, state.clientSeed, nonce));
     if (res && res.win) {
@@ -1253,6 +1314,8 @@ async function playPocketDice() {
     state.balance = round2(state.balance + bet);
     renderBalance(1);
     toast(`Pocket Dice error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('pocket-dice');
   }
 }
 
@@ -1260,6 +1323,8 @@ async function playDice() {
   if (!dice) return;
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('dice')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -1270,6 +1335,7 @@ async function playDice() {
   dice.setBet?.(bet);
   dice.setCondition?.(cond);
   dice.setTarget?.(target);
+
   try {
     const res = await trackRound(dice.roll(state.serverSeed, state.clientSeed, nonce));
     if (res && res.win) {
@@ -1287,14 +1353,18 @@ async function playDice() {
     state.balance = round2(state.balance + bet);
     renderBalance(1);
     toast(`Dice error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('dice');
   }
 }
 
 async function playHilo() {
-  if (!hilo) return;
+  if (!hilo || actionLocks.has('hilo')) return;
   if (!state.hiloInRound) {
     const bet = state.bet;
     if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+    if (!beginAction('hilo')) return;
+
     state.balance = round2(state.balance - bet);
     renderBalance(-1);
     state.hiloInRound = true;
@@ -1312,6 +1382,8 @@ async function playHilo() {
       state.balance = round2(state.balance + bet);
       renderBalance(1);
       toast(`Hilo error: ${err?.message ?? err}`, 'warn');
+    } finally {
+      endAction('hilo');
     }
     return;
   }
@@ -1319,7 +1391,7 @@ async function playHilo() {
 }
 
 async function guessHilo(dir) {
-  if (!hilo || !state.hiloInRound) return;
+  if (!hilo || !state.hiloInRound || !beginAction('hilo')) return;
   try {
     const res = await trackRound(hilo.guess(dir));
     const multEl = $('#hilo-mult-hint');
@@ -1334,11 +1406,13 @@ async function guessHilo(dir) {
   } catch (err) {
     console.error('[hilo] guess failed', err);
     toast(`Hilo guess error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('hilo');
   }
 }
 
 function cashoutHilo() {
-  if (!hilo || !state.hiloInRound) return;
+  if (!hilo || !state.hiloInRound || actionLocks.has('hilo')) return;
   state.hiloInRound = false;
   const wager = state.hiloWager || state.bet;
   if (hilo.inGame === false) {
@@ -1370,11 +1444,14 @@ async function playKeno() {
   }
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('keno')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
   el.miniNonce.textContent = fmtInt(nonce);
   keno.setBet?.(bet);
+
   try {
     const res = await trackRound(keno.play(state.serverSeed, state.clientSeed, nonce));
     if (res && res.payout > 0) {
@@ -1392,6 +1469,8 @@ async function playKeno() {
     state.balance = round2(state.balance + bet);
     renderBalance(1);
     toast(`Keno error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('keno');
   }
 }
 
@@ -1526,6 +1605,8 @@ async function playCrash() {
   }
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('crash')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -1539,28 +1620,27 @@ async function playCrash() {
   crash.autoCashout = autoTarget;
 
   try {
-    // The primary button IS crash's cash-out control, so its label has to follow
-    // the round: 'Place Bet' -> 'Cash Out' on start, and back when it settles
-    // (onCashout / onCrash below).
-    // AFTER the await, not before: startRound() awaits the HMAC before it calls
-    // setState('running'), so a synchronous render here reads the old state and
-    // leaves the button saying "Place Bet" for the whole round. It resolves at
-    // round START, not settlement, so this is not a finally either.
+    // startRound() exposes the running state only after its fair-outcome await.
+    // Keep the start locked until then; once running, the same button is free to
+    // perform its intentional second action: Cash Out.
     await trackRound(crash.startRound(state.serverSeed, state.clientSeed, nonce));
-    renderDropButton();
   } catch (err) {
     console.error('[crash] start failed', err);
     state.balance = round2(state.balance + bet);
     renderBalance(1);
-    renderDropButton();
+  } finally {
+    endAction('crash');
   }
 }
 
 async function playTwist() {
   if (!twist) return;
-  if (!state.twistInRound) {
-    const bet = state.bet;
-    if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  const startingRound = !state.twistInRound;
+  const bet = state.bet;
+  if (startingRound && state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('twist')) return;
+
+  if (startingRound) {
     state.balance = round2(state.balance - bet);
     renderBalance(-1);
     state.twistInRound = true;
@@ -1585,11 +1665,13 @@ async function playTwist() {
     }
   } catch (err) {
     console.error('[twist] spin failed', err);
+  } finally {
+    endAction('twist');
   }
 }
 
 function cashoutTwist() {
-  if (!twist || !state.twistInRound) return;
+  if (!twist || !state.twistInRound || actionLocks.has('twist')) return;
   const res = twist.cashout();
   state.twistInRound = false;
   const wager = state.twistWager || state.bet;
@@ -1607,6 +1689,8 @@ async function playLimbo(manual = false) {
   if (!limbo) return;
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('limbo')) return;
+
   if (manual) audio?.play?.('limbo', 'roll_click');
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
@@ -1633,6 +1717,8 @@ async function playLimbo(manual = false) {
     console.error('[limbo] roll failed', err);
     state.balance = round2(state.balance + bet);
     renderBalance(1);
+  } finally {
+    endAction('limbo');
   }
 }
 
@@ -1852,10 +1938,26 @@ function applyBoardConfig({ rows, risk }) {
 
 let lastFocused = null;
 
+function openModals() { return $$('.modal').filter((m) => !m.hidden); }
+
+function syncOverlayScrollLock() {
+  const locked = openModals().length > 0 || document.body.classList.contains('tools-open');
+  document.body.style.overflow = locked ? 'hidden' : '';
+}
+
+function focusableItems(container) {
+  return $$('a[href], button:not(:disabled), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', container)
+    .filter((node) => node.offsetParent !== null && !node.closest('[inert]'));
+}
+
 function openModal(modal) {
-  lastFocused = document.activeElement;
+  /* A tool-launched dialog closes its sheet immediately. Return focus to the
+     visible More trigger, not to a button that is about to become hidden. */
+  lastFocused = document.body.classList.contains('tools-open')
+    ? ($('#btn-more') || document.activeElement)
+    : document.activeElement;
   modal.hidden = false;
-  document.body.style.overflow = 'hidden';
+  syncOverlayScrollLock();
   const focusable = modal.querySelector('input:not([readonly]), button:not([data-close]), select');
   (focusable || modal.querySelector('[data-close]'))?.focus();
   audio?.playButtonClick();
@@ -1863,23 +1965,37 @@ function openModal(modal) {
 
 function closeModal(modal) {
   modal.hidden = true;
-  if (!$$('.modal').some((m) => !m.hidden)) document.body.style.overflow = '';
+  syncOverlayScrollLock();
   if (lastFocused instanceof HTMLElement) lastFocused.focus();
 }
 
-function openModals() { return $$('.modal').filter((m) => !m.hidden); }
+function cycleFocus(e, container) {
+  const items = focusableItems(container);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (!container.contains(active)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 function trapFocus(e) {
   if (e.key !== 'Tab') return;
   const modal = openModals().pop();
-  if (!modal) return;
-  const items = $$('a[href], button:not(:disabled), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])', modal)
-    .filter((n) => n.offsetParent !== null);
-  if (!items.length) return;
-  const first = items[0];
-  const last = items[items.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  if (modal) {
+    cycleFocus(e, modal);
+    return;
+  }
+  const toolsNav = $('#topbar-actions');
+  if (toolsNav && document.body.classList.contains('tools-open')) cycleFocus(e, toolsNav);
 }
 
 /* ------------------------------ Customize ------------------------------ */
@@ -2731,22 +2847,29 @@ function bindEvents() {
     if (!isMuted) audio?.playButtonClick();
   });
 
-  /* Phone tools sheet.
-     Below 720px CSS turns .topbar__actions into a bottom sheet so the header is
-     one row and the game gets the space. The seven tools are NOT duplicated —
-     this only toggles how the existing nav is presented, so every handler above
-     still owns its own button and there is no second wiring to drift.
-     The close-on-select listener is DELEGATED to the nav rather than attached
-     per button: four of the tools open a modal, and a sheet left open would
-     paint over the dialog it just launched. Delegation also covers any tool
-     added later without remembering this. */
+  /* Compact-header tools sheet. CSS switches the existing tool nav into a
+     bottom sheet below 960px, including phone landscape. The controls are not
+     duplicated, so the same handlers and analytics hooks remain authoritative. */
   const toolsNav = $('#topbar-actions');
   const toolsBtn = $('#btn-more');
   const toolsScrim = $('#tools-scrim');
+  const toolsSheetQuery = window.matchMedia('(max-width: 960px)');
+  let toolsLastFocused = null;
 
-  function setToolsOpen(open) {
+  function setToolsOpen(requested, { restoreFocus = true, focusFirst = true } = {}) {
+    const open = Boolean(requested && toolsSheetQuery.matches);
+    if (open) toolsLastFocused = document.activeElement;
     document.body.classList.toggle('tools-open', open);
     toolsBtn?.setAttribute('aria-expanded', String(open));
+    if (toolsNav) toolsNav.inert = toolsSheetQuery.matches && !open;
+    syncOverlayScrollLock();
+
+    if (open && focusFirst) {
+      requestAnimationFrame(() => focusableItems(toolsNav)[0]?.focus());
+    } else if (!open && restoreFocus) {
+      const target = toolsLastFocused instanceof HTMLElement ? toolsLastFocused : toolsBtn;
+      if (target instanceof HTMLElement) target.focus();
+    }
   }
 
   toolsBtn?.addEventListener('click', () => {
@@ -2755,8 +2878,17 @@ function bindEvents() {
   });
   toolsScrim?.addEventListener('click', () => setToolsOpen(false));
   toolsNav?.addEventListener('click', (e) => {
-    if (e.target instanceof Element && e.target.closest('.btn')) setToolsOpen(false);
+    if (!(e.target instanceof Element) || !e.target.closest('.btn')) return;
+    /* Modal handlers run on the button before this delegated listener. Do not
+       steal focus from a dialog that has just opened; its close path returns to
+       the More trigger via openModal(). */
+    setToolsOpen(false, { restoreFocus: openModals().length === 0 });
   });
+  toolsSheetQuery.addEventListener('change', ({ matches }) => {
+    if (!matches) setToolsOpen(false, { restoreFocus: false, focusFirst: false });
+    else if (toolsNav) toolsNav.inert = !document.body.classList.contains('tools-open');
+  });
+  if (toolsNav) toolsNav.inert = toolsSheetQuery.matches;
 
   /* hotkeys */
   window.addEventListener('keydown', (e) => {
@@ -2961,10 +3093,12 @@ async function init() {
       pane.classList.toggle('is-active', active);
       pane.style.display = active ? 'flex' : 'none';
     });
+    const label = gameLabel(g);
     const titleEl = document.getElementById('current-game-title');
-    if (titleEl) {
-      titleEl.textContent = gameLabel(g);
-    }
+    const pageTitle = document.getElementById('game-page-title');
+    if (titleEl) titleEl.textContent = label;
+    if (pageTitle) pageTitle.textContent = label;
+    document.title = `${label} · Nour's Casino`;
 
     // state.activeGame is already `g` here, so the shared resolver covers both the
     // per-game label and the crash cash-out override, and renderDropButton() can
@@ -3051,6 +3185,7 @@ async function init() {
 
     const titleEl = document.getElementById('current-game-title');
     if (titleEl) titleEl.textContent = 'Casino';
+    document.title = "Nour's Casino · Provably Fair Originals";
 
     refreshLobbyStats();
     jitterLiveCounts();

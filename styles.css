@@ -69,7 +69,6 @@ body {
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow-x: hidden;
   /* A pull-down on a game board must not reload the page mid-round. `contain`
      rather than `none`: internal scrolling still works, only the chain to the
      browser's pull-to-refresh is cut. */
@@ -92,6 +91,17 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
 ::selection { background: rgba(16,185,129,.34); }
 
 .svg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 .ico { display: block; flex: none; }
 
 .txt-green { color: var(--green-hi) !important; }
@@ -116,10 +126,11 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
   border-bottom: 1px solid var(--line);
 }
 
-/* The tools sheet and its handle exist only below 720px, where .topbar__actions
-   is re-presented as a bottom sheet (see that block). Above it the seven tools
-   are just a row in the header and neither of these is rendered. */
-.tools-toggle { display: none; }
+/* The tools sheet and its handle exist only in the compact-header regime,
+   where .topbar__actions is re-presented as a bottom sheet. Above it the seven
+   tools stay inline and the toggle must remain out of both layout and focus. */
+.topbar .tools-toggle { display: none; }
+.tool-sheet-label { display: none; }
 .tools-scrim  { display: none; }
 
 .topbar__inner {
@@ -306,6 +317,7 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
 .btn--drop:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.06); box-shadow: 0 0 0 1px rgba(16,185,129,.3), 0 20px 38px -14px rgba(16,185,129,1), inset 0 1px 0 rgba(255,255,255,.4); }
 .btn--drop:active:not(:disabled) { transform: translateY(0) scale(.985); }
 .btn--drop:disabled { opacity: .5; cursor: not-allowed; filter: grayscale(.35); }
+.btn--drop[aria-busy="true"]:disabled { opacity: .78; cursor: progress; filter: saturate(.72); }
 .btn--drop__label { font-size: 15.5px; letter-spacing: .02em; position: relative; z-index: 1; }
 .btn--drop__sub {
   font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
@@ -336,8 +348,9 @@ code, kbd, .mono, .input--mono, output { font-family: 'Roboto Mono', ui-monospac
   border-radius: 6px;
   transition: background .16s, color .16s, transform .12s, border-color .16s;
 }
-.chip-btn:hover { color: var(--text); background: rgba(16,185,129,.16); border-color: rgba(16,185,129,.4); }
-.chip-btn:active { transform: scale(.93); }
+.chip-btn:hover:not(:disabled) { color: var(--text); background: rgba(16,185,129,.16); border-color: rgba(16,185,129,.4); }
+.chip-btn:active:not(:disabled) { transform: scale(.93); }
+.chip-btn:disabled { opacity: .5; cursor: progress; }
 .chip-btn--wide { flex: 1; min-width: 0; }
 .chip-btn.is-active { color: #04281c; background: var(--green); border-color: var(--green); }
 .chip-row { display: flex; gap: 6px; margin-top: 8px; }
@@ -553,14 +566,19 @@ select.input option { background: var(--panel-2); color: var(--text); }
   pointer-events: none;
 }
 .input-group__actions {
-  position: absolute; right: 5px;
-  display: flex; gap: 4px;
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: flex;
+  gap: 4px;
+  transform: translateY(-50%);
 }
-.input-group:has(.input-group__actions) .input { padding-right: 8px; }
 
-/* pad the text field so it never slides under the chip cluster */
+/* Pad text fields by the actual action cluster width so long seeds and bet
+   values never slide underneath touch-sized buttons. */
 #bet-amount { padding-right: 168px; }
-#fair-client, #fair-server-hash, #fair-prev-server { padding-right: 76px; }
+#fair-client { padding-right: 106px; }
+#fair-server-hash, #fair-prev-server { padding-right: 58px; }
 
 .input.is-error { border-color: rgba(239,68,68,.65); box-shadow: 0 0 0 3px rgba(239,68,68,.13); }
 
@@ -1144,10 +1162,117 @@ select.input option { background: var(--panel-2); color: var(--text); }
   }
 }
 
+@media (max-width: 960px) {
+  /* Once the full tool cluster would compete with game navigation and wallet
+     information, keep the header to one measured row and present those same
+     controls as a touch-first sheet. This also covers modern phones in
+     landscape (often 844–932 CSS pixels wide), not only portrait widths. */
+  :root { --topbar-h: 64px; }
+  .topbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(180deg, rgba(13, 19, 33, .99), rgba(13, 19, 33, .96));
+  }
+  .topbar__inner {
+    flex-wrap: nowrap;
+    gap: 7px;
+    padding-block: 5px;
+  }
+  .brand__text { display: none; }
+  .wallet {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 7px;
+    padding: 4px 5px 4px 10px;
+  }
+  .topbar #btn-home,
+  .topbar #btn-more,
+  .topbar #btn-deposit {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    flex: 0 0 auto;
+  }
+  #btn-more { display: inline-flex; }
+
+  .topbar__actions {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 95;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    padding: 24px max(14px, env(safe-area-inset-right))
+      calc(14px + env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    background: rgba(21, 28, 40, .985);
+    box-shadow: 0 -24px 60px -20px rgba(0, 0, 0, .95);
+    overflow: visible;
+    overscroll-behavior: contain;
+    transform: translateY(110%);
+    visibility: hidden;
+    transition: transform .26s var(--ease), visibility 0s linear .26s;
+  }
+  .topbar__actions::before {
+    content: '';
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    width: 42px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, .34);
+    transform: translateX(-50%);
+  }
+  body.tools-open .topbar__actions {
+    transform: none;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+  .topbar__actions .btn {
+    flex-direction: column;
+    gap: 5px;
+    min-height: 62px;
+    padding: 10px 6px;
+    font-size: 11px;
+    border-radius: 12px;
+    background: rgba(148, 163, 184, .06);
+  }
+  .topbar__actions .btn--icon { aspect-ratio: auto; }
+  .topbar__actions .btn__label,
+  .topbar__actions .acct-name,
+  .topbar__actions .tool-sheet-label {
+    display: block;
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
+  .tools-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 85;
+    background: rgba(6, 10, 20, .58);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .26s var(--ease), visibility 0s linear .26s;
+  }
+  body.tools-open .tools-scrim {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  /* .topbar is a stacking context; lift that context over fixed game actions
+     while the sheet is open, but keep it below dialogs (z-index 100+). */
+  body.tools-open .topbar { z-index: 90; }
+}
+
 @media (max-width: 860px) {
   .topbar__inner {
-    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
-    gap: 8px;
+    padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+    gap: 7px;
   }
   .brand__text i { display: none; }
   .game-tab { padding: 6px 12px; font-size: 12px; }
@@ -1195,88 +1320,6 @@ select.input option { background: var(--panel-2); color: var(--text); }
      and their empty state advertises a keyboard ("hit Space to play"). The same
      history lives in the stats modal. */
   .history-rail { display: none; }
-
-  /* ---- One 64px header ------------------------------------------------------
-     The seven tools become a bottom sheet behind #btn-more (below), so the row
-     is just [brand · home · balance · deposit · more] and the header stops being
-     two rows (112px measured before).
-     Everything that makes it ONE row lives here, at the same breakpoint as the
-     sheet — token included. Splitting them left 521-720px rendering a one-row
-     header while every sticky offset still assumed the two-row 76px token.
-     backdrop-filter has to go: it makes .topbar a containing block for fixed
-     descendants, and the tools sheet is a fixed child of it. */
-  :root { --topbar-h: 64px; }
-  .topbar {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: linear-gradient(180deg, rgba(13, 19, 33, .99), rgba(13, 19, 33, .96));
-  }
-  .topbar__inner { flex-wrap: nowrap; gap: 7px; padding-block: 7px; }
-  /* The wordmark goes across the whole one-row band, not just <=520px: it is the
-     only thing that made 521-720px render a 68px header against a 64px token. */
-  .brand__text { display: none; }
-  /* flex-basis 0, not auto: the wallet's max-content (label + amount + Deposit)
-     would otherwise claim more than its share before min-width:0 is consulted,
-     and with nowrap that pushes the row wide instead of shrinking it. */
-  .wallet { flex: 1 1 0; min-width: 0; }
-  .topbar #btn-home,
-  .topbar #btn-more,
-  .topbar #btn-deposit { min-width: 40px; min-height: 40px; padding: 8px; flex: 0 0 auto; }
-  #btn-more { display: inline-flex; }
-
-  /* The tools sheet. Same seven buttons, no duplicate markup and no second set
-     of handlers — only their presentation changes. */
-  .topbar__actions {
-    position: fixed;
-    inset: auto 0 0 0;
-    z-index: 95;                       /* over the action bar (80), under modals */
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--line);
-    border-radius: var(--r-xl) var(--r-xl) 0 0;
-    background: rgba(21, 28, 40, .98);
-    box-shadow: 0 -24px 60px -20px rgba(0, 0, 0, .95);
-    overflow: visible;
-    transform: translateY(110%);
-    visibility: hidden;
-    transition: transform .26s var(--ease), visibility .26s;
-  }
-  body.tools-open .topbar__actions { transform: none; visibility: visible; }
-  .topbar__actions .btn {
-    flex-direction: column;
-    gap: 5px;
-    min-height: 62px;
-    padding: 10px 6px;
-    font-size: 11px;
-    border-radius: 12px;
-    background: rgba(148, 163, 184, .06);
-  }
-  .topbar__actions .btn__label,
-  .topbar__actions .acct-name { display: block; font-size: 10.5px; line-height: 1.15; }
-  /* Scrim: taps outside the sheet close it (app.js also handles Esc). */
-  .tools-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 85;                     /* above the Drop bar (80), below the sheet */
-    background: rgba(6, 10, 20, .55);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity .26s var(--ease), visibility .26s;
-  }
-  body.tools-open .tools-scrim { opacity: 1; visibility: visible; }
-
-  /* .topbar is `position: sticky; z-index: 60`, which is a STACKING CONTEXT: the
-     sheet is a descendant, so its own z-index is scoped inside 60 and can never
-     rise above the fixed Drop bar (80) or the cheat panel (70) — both of which
-     sit exactly where the sheet opens, so the bar would cover it and swallow the
-     bottom row's taps. Lift the whole context while the sheet is open.
-     90, not something larger: modals are 100 and every tool in this sheet opens
-     one, so anything above 100 would paint the sheet over the dialog it just
-     launched. 90 clears the bar and the panel and stays under modals. */
-  body.tools-open .topbar { z-index: 90; }
 }
 
 @media (max-width: 520px) {
@@ -1286,10 +1329,9 @@ select.input option { background: var(--panel-2); color: var(--text); }
   .wallet__meta small { display: none; }
   .wallet__amount { font-size: 13.5px; }
   .history-rail__label span { display: none; }
-  /* The one-row header, its 40px targets and --topbar-h all live in the <=720px
-     block. What is left here is what only a narrow phone needs: the wordmark and
-     the Deposit label go so the balance keeps its width. Re-measure --topbar-h in
-     the 720 block if either comes back. */
+  /* The compact header, its 44px targets and --topbar-h live in the <=960px
+     block. At this narrower tier the Deposit label goes so the balance keeps its
+     width without truncation. Re-measure --topbar-h if that label returns. */
   .wallet__meta small { display: none; }
   .topbar .wallet { gap: 6px; padding: 4px 6px 4px 10px; }
   .topbar #btn-deposit span { display: none; }
@@ -1316,8 +1358,8 @@ select.input option { background: var(--panel-2); color: var(--text); }
 
 @media (max-width: 380px) {
   .board-stage { min-height: 280px; }
-  .input-group { flex-wrap: wrap; }
-  .input-group__actions { width: 100%; margin-top: 4px; }
+  .topbar__inner { gap: 5px; }
+  .topbar .wallet__ico { display: none; }
 }
 
 /* Short landscape viewports — a rotated phone or a small tablet on its side.
@@ -1364,12 +1406,8 @@ select.input option { background: var(--panel-2); color: var(--text); }
   .hotkeys { display: none; }
 }
 
-/* Touch devices: real 44px targets.
-   `.game-tab` IS inside .topbar, whose height feeds --topbar-h and every sticky
-   offset derived from it (AGENTS.md §10). It is safe here only because the strip
-   is hidden below 720px and, above it, 44px still fits inside the 66px header.
-   The topbar's own chrome is sized explicitly in the <=720px block instead,
-   where the one-row header is measured. */
+/* Touch devices: real 44px targets. Compact-header controls are measured in
+   the <=960px block; the wider stacked regime has a 76px header token. */
 @media (pointer: coarse) {
   .controls .btn,
   .game-tab,
@@ -1385,10 +1423,8 @@ select.input option { background: var(--panel-2); color: var(--text); }
   .controls select,
   .modal .input,
   .modal select { min-height: 44px; font-size: 16px; }
-  /* Topbar chrome gets 40, not 44: the header's own min-height is 66px with 10px
-     of padding, so 40 is the largest floor that cannot grow --topbar-h and desync
-     every sticky offset derived from it (AGENTS.md §10). Measured 30x30 before. */
-  .topbar .btn { min-width: 40px; min-height: 40px; }
+  .topbar .btn { min-width: 44px; min-height: 44px; }
+  .range { min-height: 44px; height: 44px; }
   /* "Press Space" is noise without a keyboard. */
   .btn--drop__sub { display: none; }
 }

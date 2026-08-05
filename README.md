@@ -4,21 +4,14 @@
 
 A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice,
 Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
-<<<<<<< HEAD
-has no bundler, no framework, no runtime dependency, no CDN-hosted JS or CSS, and not a single
-image, sprite or audio file: every pixel on every stage is drawn procedurally and every sound
-is synthesised. The one external request the **web** build makes is the Google Fonts stylesheet
-for Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it falls back to
-the system stack and runs fully offline. The **packaged native app** never makes it at all:
-`scripts/build-www.mjs` strips those tags when it generates `www/` and links `css/fonts.css`
-instead, which serves four vendored variable-font `.woff2` files out of `fonts/`.
-=======
 has no bundler, no framework, no runtime dependency, and no CDN-hosted JS or CSS. Every stage
 is drawn procedurally with no image or sprite files. Game events use the bundled Gamdom sound
-set through a same-origin `HTMLAudioElement` pool. The only external request is the Google Fonts
-stylesheet for Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it
-falls back to the system stack and runs fully offline.
->>>>>>> bc9f239 (feat(audio): add asset-backed Gamdom sound cues)
+set through a same-origin `HTMLAudioElement` pool. The only external request the **web** build
+makes is the Google Fonts stylesheet for Inter + Roboto Mono; delete those three `<link>` tags
+in `index.html` and it falls back to the system stack and runs fully offline. The **packaged
+native app** never makes it at all: `scripts/build-www.mjs` strips those tags when it generates
+`www/` and links `css/fonts.css` instead, which serves four vendored variable-font `.woff2`
+files out of `fonts/`.
 
 `package.json` carries two toolchains and ships neither to the browser: `wrangler` for the
 Cloudflare deploy, and Capacitor for the [native app](#native-app-android--ios) —

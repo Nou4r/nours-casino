@@ -4,6 +4,7 @@
 
 A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice,
 Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
+<<<<<<< HEAD
 has no bundler, no framework, no runtime dependency, no CDN-hosted JS or CSS, and not a single
 image, sprite or audio file: every pixel on every stage is drawn procedurally and every sound
 is synthesised. The one external request the **web** build makes is the Google Fonts stylesheet
@@ -11,6 +12,13 @@ for Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it
 the system stack and runs fully offline. The **packaged native app** never makes it at all:
 `scripts/build-www.mjs` strips those tags when it generates `www/` and links `css/fonts.css`
 instead, which serves four vendored variable-font `.woff2` files out of `fonts/`.
+=======
+has no bundler, no framework, no runtime dependency, and no CDN-hosted JS or CSS. Every stage
+is drawn procedurally with no image or sprite files. Game events use the bundled Gamdom sound
+set through a same-origin `HTMLAudioElement` pool. The only external request is the Google Fonts
+stylesheet for Inter + Roboto Mono; delete those three `<link>` tags in `index.html` and it
+falls back to the system stack and runs fully offline.
+>>>>>>> bc9f239 (feat(audio): add asset-backed Gamdom sound cues)
 
 `package.json` carries two toolchains and ships neither to the browser: `wrangler` for the
 Cloudflare deploy, and Capacitor for the [native app](#native-app-android--ios) —
@@ -57,12 +65,12 @@ Windows users can just double-click `start.bat`.
 
 Casino Originals are a great excuse to write a lot of interesting code in a small space:
 HMAC-derived randomness, a soft-body-ish physics sim, eleven bespoke canvas renderers sharing
-one design language, a Web Audio synthesiser with no audio files, and a money path that must
-never lose a cent no matter how the UI is abused.
+one design language, an asset-backed audio pool with game-specific cue timing, and a money path
+that must never lose a cent no matter how the UI is abused.
 
 The visual language is modelled on [Gamdom's](https://gamdom.com) Originals, but every line of
-code, every payout table and every piece of art here is original and self-contained. Nothing is
-fetched at runtime beyond the two web fonts.
+code, every payout table and every piece of art here is original and self-contained. No
+third-party resource is fetched at runtime beyond the two web fonts.
 
 ---
 
@@ -116,8 +124,8 @@ was built at, so the default is byte-identical to untouched behaviour.
 loop waits instead of double-betting; it stops automatically when the balance can't cover the
 next bet.
 
-**Synthesised audio.** `js/audio.js` is a small Web Audio synthesiser. Every peg tick, win
-chime, bust and card flip is generated — the project ships no audio files.
+**Asset-backed audio.** `js/audio.js` lazily pools the 77 bundled Gamdom MP3/WAV cues, limits
+overlapping voices, and keeps mute, volume, loop, visibility, and browser-unlock state shared.
 
 **Hotkeys** (game route only, so a focused lobby card can never place a bet):
 
@@ -262,7 +270,8 @@ js/app.js               Controller: state, wallet, history, stats, auto mode, ro
 js/accounts.js          Named profiles in localStorage + export/import codes
 js/cheats.js            Outcome peek for all 11 games (pure — never mutates anything)
 js/physics.js           Plinko board: peg pyramid, ball sim, bucket VFX
-js/audio.js             Web Audio synthesiser — zero audio files
+js/audio.js             Asset-backed HTMLAudio pool, cue aliases, mute/volume persistence
+assets/gamdom/          77 bundled game sound cues (76 MP3, 1 WAV)
 js/native.js            Capacitor bridge — status bar, splash, back button, haptics; inert in a browser
 js/render/theme.js      Shared canvas primitives: palette, paintStage, peg/chip/tile/card/…
 js/math/provably-fair.js  HMAC-SHA256 outcomes, seed pair, verifier, SHA-256 fallback
@@ -398,8 +407,8 @@ the exact upload without touching your account, run `npm run deploy:dry`.
 
 The assets directory is the repo root, because that is also what GitHub Pages serves. **Wrangler
 does not read `.gitignore`** — it uploads every file it finds. So `.assetsignore` is written as
-an *allow-list*: ignore everything at the root, then re-admit `index.html`, `styles.css`, `css/`
-and `js/`.
+an *allow-list*: ignore everything at the root, then re-admit `index.html`, `styles.css`, `css/`,
+`js/` and `assets/`.
 
 That direction is deliberate. An allow-list fails loudly (a missing file 404s); a deny-list fails
 silently (a new `secrets.txt` in the root gets published). `cookies.txt`, `.git/`, `node_modules/`,

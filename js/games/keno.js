@@ -377,17 +377,15 @@ export class KenoGame {
 
     if (this.pickedTiles.has(tileNum)) {
       this.pickedTiles.delete(tileNum);
-      this.playSound('pick');
     } else {
       if (this.pickedTiles.size >= this.maxPicks) {
-        this.playSound('error');
         this.pulseFlash(T.PALETTE.red, 0.5);
         return false;
       }
       this.pickedTiles.add(tileNum);
-      this.playSound('pick');
       this.popTile(tileNum, 0.7);
     }
+    this.audio?.play?.('keno', 'tile_select');
 
     if (this.onPickChange) {
       this.onPickChange(Array.from(this.pickedTiles));
@@ -414,7 +412,7 @@ export class KenoGame {
       this.pickedTiles.add(pool.splice(idx, 1)[0]);
     }
 
-    this.playSound('pick');
+    this.audio?.play?.('keno', 'tile_select');
     for (const n of this.pickedTiles) this.popTile(n, 0.7);
 
     if (this.onPickChange) {
@@ -431,7 +429,7 @@ export class KenoGame {
   clearPicks() {
     if (this.state === 'playing') return;
     this.pickedTiles.clear();
-    this.playSound('click');
+    this.audio?.play?.('keno', 'clear');
 
     if (this.onPickChange) {
       this.onPickChange([]);
@@ -475,6 +473,7 @@ export class KenoGame {
     this.matchedTiles = [];
     this.bannerUntil = 0;
     this.setState('playing');
+    this.audio?.play?.('keno', 'start');
 
     if (this.onPlayStart) {
       this.onPlayStart({
@@ -497,13 +496,11 @@ export class KenoGame {
       if (isHit) {
         this.matchedTiles.push(tile);
         this.triggerHitFX(tile);
-        this.playSound('hit', this.matchedTiles.length);
         if (this.onHit) {
           this.onHit({ num: tile, hitIndex: i, totalHits: this.matchedTiles.length });
         }
-      } else {
-        this.playSound('draw');
       }
+      this.audio?.play?.('keno', isHit ? 'revealed_win' : 'revealed_lose');
 
       if (this.onTileDrawn) {
         this.onTileDrawn({ num: tile, drawnCount: i + 1, isHit, matchedCount: this.matchedTiles.length });
@@ -544,11 +541,10 @@ export class KenoGame {
 
     if (won) {
       this.pulseFlash(multiplier >= 10 ? T.PALETTE.gold : T.PALETTE.mint, 1);
-      this.playSound('win', multiplier);
+      this.audio?.play?.('keno', 'win');
       if (this.onWin) this.onWin(result);
     } else {
       this.pulseFlash(T.PALETTE.red, 0.75);
-      this.playSound('loss');
       if (this.onLoss) this.onLoss(result);
     }
 
@@ -615,24 +611,6 @@ export class KenoGame {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
   }
 
-  playSound(type, param = 1) {
-    if (!this.audio) return;
-    try {
-      if (typeof this.audio.resume === 'function') this.audio.resume();
-
-      if (type === 'pick' && typeof this.audio.playPegHit === 'function') {
-        this.audio.playPegHit(0.5);
-      } else if (type === 'draw' && typeof this.audio.playPegHit === 'function') {
-        this.audio.playPegHit(0.2);
-      } else if (type === 'hit' && typeof this.audio.playPegHit === 'function') {
-        this.audio.playPegHit(0.9 + (param * 0.05));
-      } else if ((type === 'win' || type === 'loss') && typeof this.audio.playBucketHit === 'function') {
-        this.audio.playBucketHit(param);
-      }
-    } catch {
-      // Ignore audio context errors
-    }
-  }
 
   /** Queue a scale pop on a tile. Ignored when reduced motion is requested. */
   popTile(num, strength = 1) {

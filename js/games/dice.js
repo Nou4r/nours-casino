@@ -150,6 +150,7 @@ export class DiceGame {
 
     this.options = opts;
     this.audio = opts.audio || null;
+    this.audioGame = opts.audioGame === 'pocket-dice' ? 'pocket-dice' : 'dice';
 
     // Callbacks
     this.onStateChange = opts.onStateChange || null;
@@ -335,6 +336,20 @@ export class DiceGame {
       history: [...this.history],
     };
   }
+  _playAudioCue(cue, options) {
+    return this.audio?.play?.(this.audioGame, cue, options) || null;
+  }
+
+  _playLandingCue(roll) {
+    if (this.audioGame === 'pocket-dice') {
+      this._playAudioCue('scoring', { volume: 0.82 });
+      return;
+    }
+
+    const normalized = Math.max(0, Math.min(99.99, Number(roll) || 0)) / 99.99;
+    this._playAudioCue('multiplier', { rate: 0.92 + normalized * 0.16 });
+  }
+
 
   /* -------------------------------------------------------------------------- */
   /* Main Game Action: Roll                                                     */
@@ -362,8 +377,9 @@ export class DiceGame {
     if (this.onStateChange) this.onStateChange(this.state);
     if (this.onRollStart) this.onRollStart({ bet: this.betAmount, target: this.target, condition: this.condition });
 
-    if (this.audio?.playTick || this.audio?.play) {
-      try { (this.audio.playTick || this.audio.play).call(this.audio, 'roll'); } catch (_) {}
+    this._playAudioCue('bet', this.audioGame === 'pocket-dice' ? { volume: 0.82 } : undefined);
+    if (this.audioGame === 'pocket-dice') {
+      this._playAudioCue('start', { volume: 0.82 });
     }
 
     // Determine provably fair roll outcome
@@ -424,15 +440,10 @@ export class DiceGame {
     if (win) {
       this.spawnParticles(markerX, markerY);
       if (!this._reducedMotion) this.flashState = { color: T.PALETTE.mint, alpha: 0.35, startTime: performance.now(), duration: 620 };
-      if (this.audio?.playWin || this.audio?.play) {
-        try { (this.audio.playWin || this.audio.play).call(this.audio, 'win'); } catch (_) {}
-      }
+      this._playAudioCue('win', this.audioGame === 'pocket-dice' ? { volume: 0.88 } : undefined);
       if (this.onWin) this.onWin(outcome);
     } else {
       if (!this._reducedMotion) this.flashState = { color: T.PALETTE.red, alpha: 0.25, startTime: performance.now(), duration: 460 };
-      if (this.audio?.playLoss || this.audio?.play) {
-        try { (this.audio.playLoss || this.audio.play).call(this.audio, 'loss'); } catch (_) {}
-      }
       if (this.onLoss) this.onLoss(outcome);
     }
 
@@ -863,8 +874,10 @@ export class DiceGame {
       if (typeof this.onRollTick === 'function') this.onRollTick(this.animatedRoll);
 
       if (progress >= 1) {
-        this.animatedRoll = this.rollAnimation.targetRoll;
+        const landedRoll = this.rollAnimation.targetRoll;
+        this.animatedRoll = landedRoll;
         this.rollAnimation = null;
+        this._playLandingCue(landedRoll);
         this._dirty = true;
       }
     }

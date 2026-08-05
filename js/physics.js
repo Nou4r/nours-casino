@@ -229,7 +229,6 @@ export class PlinkoPhysics {
    * @param {number} [options.rows=16] Row count, clamped to 8-16.
    * @param {'low'|'medium'|'high'} [options.risk='medium'] Risk profile.
    * @param {number[]} [options.multipliers] Overrides the table for `rows`/`risk`.
-   * @param {object} [options.audio] PlinkoAudio instance, or null.
    * @param {boolean} [options.backdrop=true] Draw the inset board panel.
    * @param {(bucketIndex: number, multiplier: number, ballId: string) => void} [options.onBallLanded]
    * @param {(result: object) => void} [options.onLand] Receives `{ id, targetIndex, multiplier, betAmount, payout }`.
@@ -245,7 +244,6 @@ export class PlinkoPhysics {
 
     this.rows = normalizeRows(options.rows ?? 16);
     this.risk = normalizeRisk(options.risk ?? 'medium');
-    this.audio = options.audio ?? null;
     this.backdrop = options.backdrop !== false;
 
     this.onBallLanded = typeof options.onBallLanded === 'function' ? options.onBallLanded : null;
@@ -392,9 +390,6 @@ export class PlinkoPhysics {
     return this.rows + 1;
   }
 
-  setAudio(audio) {
-    this.audio = audio ?? null;
-  }
 
   /**
    * Launches a ball. `path` wins over `targetIndex`; with neither, a random
@@ -1237,14 +1232,6 @@ export class PlinkoPhysics {
 
     this._emitPegSparks(ball.x, ball.y, dir, impact);
 
-    const progress = rows > 1 ? (ball.row - 1) / (rows - 1) : 0;
-    if (this.audio && typeof this.audio.playPegHit === 'function') {
-      try {
-        this.audio.playPegHit(progress);
-      } catch {
-        /* audio faults must never break the render loop */
-      }
-    }
     if (this.onPegHit) {
       try {
         this.onPegHit(ball.id, ball.row - 1);
@@ -1272,13 +1259,6 @@ export class PlinkoPhysics {
       this._burst(bucket, multiplier);
     }
 
-    if (this.audio && typeof this.audio.playBucketHit === 'function') {
-      try {
-        this.audio.playBucketHit(multiplier);
-      } catch {
-        /* audio faults must never break the render loop */
-      }
-    }
 
     if (this.onBallLanded) {
       try {

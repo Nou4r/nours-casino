@@ -110,6 +110,8 @@ export class LimboGame {
     this.isAutoRolling = false;
     this.autoRollTimer = null;
     this.autoRollDelay = opts.autoRollDelay ?? 350; // ms between rolls in auto mode
+    this._audioActive = false;
+    this._stopIdleLoopAudio = null;
 
     // Round outcome data
     this.currentDisplayMult = 1.00;
@@ -184,6 +186,30 @@ export class LimboGame {
 
     this.initUI();
     this.updateUI();
+  }
+
+  setAudioActive(active) {
+    this._audioActive = !!active;
+    this._syncIdleLoopAudio();
+  }
+
+  _stopIdleLoop() {
+    const stop = this._stopIdleLoopAudio;
+    this._stopIdleLoopAudio = null;
+    if (stop) stop();
+  }
+
+  _syncIdleLoopAudio() {
+    if (!this._audioActive || this.state !== 'idle') {
+      this._stopIdleLoop();
+      return;
+    }
+    if (!this._stopIdleLoopAudio) {
+      this._stopIdleLoopAudio = this.audio?.play?.('limbo', 'idle_loop', {
+        loop: true,
+        volume: 0.48,
+      }) || null;
+    }
   }
 
   /* -------------------------------------------------------------------------- */
@@ -821,10 +847,12 @@ export class LimboGame {
     const nNonce = nonce ?? this.nonce++;
 
     this.state = 'rolling';
+    this._stopIdleLoop();
     this.setStateClass('rolling');
     this.setSubtext(`ROLLING · TARGET ${this.targetMultiplier.toFixed(2)}x`);
     this.notifyStateChange('rolling');
     if (typeof this.onRollStart === 'function') this.onRollStart();
+    this.audio?.play?.('limbo', 'roll_start');
 
     // 1. Calculate outcome multiplier M
     const finalOutcomeMult = await calculateLimboOutcome(sSeed, cSeed, nNonce);
@@ -852,12 +880,7 @@ export class LimboGame {
     this.setStateClass(win ? 'is-win' : 'is-loss');
     this.setSubtext(win ? `TARGET ${this.targetMultiplier.toFixed(2)}x · WIN +$${payout.toFixed(2)}` : `TARGET ${this.targetMultiplier.toFixed(2)}x · ROLLED ${finalOutcomeMult.toFixed(2)}x`);
 
-    // Audio effects
-    if (this.audio) {
-      if (typeof this.audio.playBucketHit === 'function') {
-        this.audio.playBucketHit(win ? this.targetMultiplier : 0);
-      }
-    }
+    this.audio?.play?.('limbo', win ? 'win' : 'lose');
 
     // Trigger callbacks
     if (win && typeof this.onWin === 'function') this.onWin(payout, finalOutcomeMult);
@@ -944,14 +967,13 @@ export class LimboGame {
           this.onRollTick(this.currentDisplayMult);
         }
 
-        // Sound ticker clicks during roll
-        if (this.audio && now - lastSoundTick > 45 && progress < 0.95) {
+        if (now - lastSoundTick > 45 && progress < 0.95) {
           lastSoundTick = now;
-          if (typeof this.audio.playPegHit === 'function') {
-            this.audio.playPegHit(progress);
-          } else if (typeof this.audio.playButtonClick === 'function') {
-            this.audio.playButtonClick();
-          }
+          this.audio?.play?.('limbo', 'tick', {
+            volume: 0.3,
+            rate: 0.92 + progress * 0.18,
+            voices: 1,
+          });
         }
 
         if (progress < 1) requestAnimationFrame(tick);
@@ -1682,6 +1704,7 @@ export class LimboGame {
   reset() {
     this.stopAutoRoll();
     this.state = 'idle';
+    this._syncIdleLoopAudio();
     this.lastOutcome = null;
     this.history = [];
     this.currentDisplayMult = 1.00;
@@ -1702,6 +1725,8 @@ export class LimboGame {
   }
 
   destroy() {
+    this._audioActive = false;
+    this._stopIdleLoop();
     this.stopAutoRoll();
     this.stopRenderLoop();
     clearTimeout(this.bloomTimer);

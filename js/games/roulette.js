@@ -144,7 +144,6 @@ export class RouletteGame {
     this.slotWidth = 80; // Default px width per slot
     this.slotGap = 6; // Gap between tiles
     this.animId = null;
-    this.lastSlotTick = -1;
 
     // DOM & Canvas Setup
     this.canvas = null;
@@ -511,7 +510,6 @@ export class RouletteGame {
     this._stopAmbient();
     this.spinning = false;
     this.currentOffset = 0;
-    this.lastSlotTick = -1;
     this._result = null;
     this._settleAt = 0;
     this._blurPx = 0;
@@ -534,6 +532,8 @@ export class RouletteGame {
     const outcomeSlot = await calculateRouletteOutcome(serverSeed, clientSeed, nonce);
     this.spinning = true;
     this._result = null;
+    this.audio?.play?.('roulette', 'bet', { volume: 0.82 });
+    this.audio?.play?.('roulette', 'spin', { volume: 0.84 });
 
     if (typeof this.onSpinStart === 'function') {
       this.onSpinStart({ serverSeed, clientSeed, nonce, outcomeSlot });
@@ -593,14 +593,6 @@ export class RouletteGame {
 
         this.currentOffset = startOffset + distanceToTravel * easeOut + settleNudge;
 
-        // Sound & Tick check on slot crossing
-        const currentSlotInt = Math.floor(this.currentOffset);
-        if (currentSlotInt !== this.lastSlotTick) {
-          if (this.lastSlotTick !== -1 && this.audio && typeof this.audio.playClick === 'function') {
-            this.audio.playClick(0.15);
-          }
-          this.lastSlotTick = currentSlotInt;
-        }
 
         if (typeof this.onTick === 'function') {
           this.onTick(this.currentOffset);
@@ -628,10 +620,12 @@ export class RouletteGame {
           const profit = totalPayout - totalBet;
           const isWin = totalPayout > 0;
 
-          if (isWin && this.audio && typeof this.audio.playWin === 'function') {
-            this.audio.playWin(payoutMultiplier);
-          } else if (!isWin && this.audio && typeof this.audio.playLoss === 'function') {
-            this.audio.playLoss();
+          this.audio?.play?.('roulette', 'result', { volume: 0.8 });
+          if (isWin) {
+            this.audio?.play?.('roulette', 'multiplier', {
+              volume: payoutMultiplier >= 5 ? 0.86 : 0.78,
+            });
+            this.audio?.play?.('roulette', 'win', { volume: 0.88 });
           }
 
           const result = {

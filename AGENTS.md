@@ -45,7 +45,8 @@ js/app.js            3099 lines   Controller. Owns state, wallet, history, stats
 js/accounts.js        791 lines   Named player profiles in localStorage + export/import codes ← read §7
 js/cheats.js          403 lines   Cheat mode outcome peek for all 11 games ← read §6
 js/physics.js        1604 lines   Plinko board: peg pyramid, ball sim, bucket VFX
-js/audio.js           462 lines   Web Audio synthesiser — zero audio files
+js/audio.js           570 lines   Shared asset-backed HTMLAudio pool, cue aliases, mute/volume persistence
+assets/gamdom/         77 files   Bundled Gamdom game cues (76 MP3, 1 WAV; 4,742,478 bytes)
 js/render/theme.js    636 lines   SHARED canvas theme: palette, paintStage, peg/chip/tile/card/... ← read §5
 js/math/multipliers.js 163 lines  Plinko payout tables (rows 8-16 × low/medium/high) + binomial/RTP math
 js/math/provably-fair.js 318      HMAC-SHA256 outcome derivation, seed pair, verifier, SHA-256 fallback
@@ -822,7 +823,7 @@ file observable instead of masked behind an SPA fallback.
 
 The assets directory is the repo root (so Pages and Cloudflare serve the same tree), and
 **wrangler does not read `.gitignore`** — it uploads everything it walks. `.assetsignore`
-therefore ignores `/*` and re-admits only `index.html`, `styles.css`, `css/`, `js/`.
+therefore ignores `/*` and re-admits only `index.html`, `styles.css`, `css/`, `js/`, `assets/`.
 
 A deny-list fails silently: drop a `secrets.txt` in the root and it ships. An allow-list fails
 loudly: forget to re-admit a folder and the site 404s in your face. `cookies.txt` — a live

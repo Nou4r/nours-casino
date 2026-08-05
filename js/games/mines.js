@@ -228,6 +228,7 @@ export class MinesGame {
 
     // Loop bookkeeping
     this.reduced = false;
+    this._gameEndTimer = null;
     this.dirty = true;
     this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
     this._raf = null;
@@ -301,8 +302,7 @@ export class MinesGame {
    * @returns {Promise<object>} Round initial state.
    */
   async startRound(serverSeed, clientSeed = '', nonce = 0) {
-    this.audio?.playButtonClick?.();
-
+    this._cancelGameEnd();
     let mineIndices = [];
     if (Array.isArray(serverSeed)) {
       mineIndices = serverSeed.filter((n) => typeof n === 'number' && n >= 0 && n < TILE_COUNT);
@@ -382,7 +382,11 @@ export class MinesGame {
 
       this.fxDetonate(idx);
 
-      this.audio?.playBucketHit?.(0);
+      this.audio?.play?.('mines', 'bomb');
+      this._gameEndTimer = setTimeout(() => {
+        this._gameEndTimer = null;
+        this.audio?.play?.('mines', 'game_end');
+      }, this.reduced ? 0 : 220);
       this.onLoss?.();
       this.onBust?.();
       this.onStateChange?.('lost');
@@ -420,7 +424,7 @@ export class MinesGame {
 
       this.fxSettle(true);
 
-      this.audio?.playBucketHit?.(this.currentMultiplier);
+      this.audio?.play?.('mines', 'win');
       this.onWin?.(this.payout, this.currentMultiplier);
       this.onCashout?.(this.payout, this.currentMultiplier);
       this.onStateChange?.('won');
@@ -440,7 +444,7 @@ export class MinesGame {
     }
 
     // Game continues
-    this.audio?.playPegHit?.(this.revealedGems / totalGems);
+    this.audio?.play?.('mines', 'cell_select');
     this.onTileReveal?.(tile, this.currentMultiplier);
     this.updateUI();
     this.onUpdate?.(this.getState());
@@ -479,7 +483,7 @@ export class MinesGame {
 
     this.fxSettle(true);
 
-    this.audio?.playBucketHit?.(this.currentMultiplier);
+    this.audio?.play?.('mines', 'win');
     this.onWin?.(this.payout, this.currentMultiplier);
     this.onCashout?.(this.payout, this.currentMultiplier);
     this.onStateChange?.('won');
@@ -520,6 +524,7 @@ export class MinesGame {
    * Reset game to idle state.
    */
   reset() {
+    this._cancelGameEnd();
     this.state = 'idle';
     this.revealedGems = 0;
     this.currentMultiplier = 1.00;
@@ -1579,7 +1584,13 @@ export class MinesGame {
   /* Teardown                                                                    */
   /* -------------------------------------------------------------------------- */
 
+  _cancelGameEnd() {
+    clearTimeout(this._gameEndTimer);
+    this._gameEndTimer = null;
+  }
+
   destroy() {
+    this._cancelGameEnd();
     this.stopLoop();
 
     if (this.canvas) {

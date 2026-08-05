@@ -1,57 +1,215 @@
-/**
- * Real-time sound synthesis for Plinko — no audio assets, everything is
- * generated on the fly with the Web Audio API.
- *
- * Signal flow:
- *
- *   voices -> bus (gain) -> compressor -> master (volume/mute) -> destination
- *
- * The compressor matters: a 16-row board with several balls in flight fires
- * dozens of peg ticks per second, and summing raw voices would clip hard.
- *
- * Browsers refuse to start an AudioContext outside a user gesture, so the
- * context is created lazily and every play method is a silent no-op until
- * `resume()` has been called from a click/keypress.
- */
-
 const STORAGE_KEY = 'plinko.audio';
+const UNLOCK_SAMPLE = new URL('../assets/gamdom/roulette/click.wav', import.meta.url).href;
 
-/** Equal-tempered frequency for a MIDI note number. */
-const midiToFreq = (note) => 440 * 2 ** ((note - 69) / 12);
+const assetUrl = (path) => new URL(`../assets/gamdom/${path}`, import.meta.url).href;
 
-// Peg ticks are quantised to a C minor pentatonic scale across two octaves.
-// Random frequencies sound like noise; a scale makes a busy board musical.
-const PEG_SCALE = Float32Array.from(
-  [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24].map((semitone) => midiToFreq(72 + semitone)),
-);
+const FILES = Object.freeze({
+  blackjack: Object.freeze({
+    click: assetUrl('blackjack/click.mp3'),
+    deal: assetUrl('blackjack/deal.mp3'),
+    flip: assetUrl('blackjack/flip.mp3'),
+  }),
+  crash: Object.freeze({
+    cashout: assetUrl('crash/cashout.mp3'),
+    end: assetUrl('crash/end.mp3'),
+    start: assetUrl('crash/start.mp3'),
+  }),
+  dice: Object.freeze({
+    bet: assetUrl('dice/bet.mp3'),
+    multiplier: assetUrl('dice/multiplier.mp3'),
+    win: assetUrl('dice/win.mp3'),
+  }),
+  hilo: Object.freeze({
+    draw: assetUrl('hilo/draw.mp3'),
+  }),
+  keno: Object.freeze({
+    clear: assetUrl('keno/clear.mp3'),
+    revealed_lose: assetUrl('keno/revealed_lose.mp3'),
+    revealed_win: assetUrl('keno/revealed_win.mp3'),
+    start: assetUrl('keno/start.mp3'),
+    tile_select: assetUrl('keno/tile_select.mp3'),
+    win: assetUrl('keno/win.mp3'),
+  }),
+  limbo: Object.freeze({
+    idle_loop: assetUrl('limbo/idle_loop.mp3'),
+    lose: assetUrl('limbo/lose.mp3'),
+    roll_click: assetUrl('limbo/roll_click.mp3'),
+    roll_start: assetUrl('limbo/roll_start.mp3'),
+    tick: assetUrl('limbo/tick.mp3'),
+    win: assetUrl('limbo/win.mp3'),
+  }),
+  mines: Object.freeze({
+    bomb: assetUrl('mines/bomb.mp3'),
+    cell_select: assetUrl('mines/cell_select.mp3'),
+    game_end: assetUrl('mines/game_end.mp3'),
+    win: assetUrl('mines/win.mp3'),
+  }),
+  plinko: Object.freeze({
+    bet: assetUrl('plinko/bet.mp3'),
+    win: assetUrl('plinko/win.mp3'),
+  }),
+  'pocket-dice': Object.freeze({
+    bet: assetUrl('pocket-dice/bet.mp3'),
+    can: assetUrl('pocket-dice/can.mp3'),
+    cube_1_variant_1: assetUrl('pocket-dice/cube_1_variant_1.mp3'),
+    cube_1_variant_2: assetUrl('pocket-dice/cube_1_variant_2.mp3'),
+    cube_1_variant_3: assetUrl('pocket-dice/cube_1_variant_3.mp3'),
+    cube_1_variant_5: assetUrl('pocket-dice/cube_1_variant_5.mp3'),
+    cube_2_variant_1: assetUrl('pocket-dice/cube_2_variant_1.mp3'),
+    cube_2_variant_2: assetUrl('pocket-dice/cube_2_variant_2.mp3'),
+    cube_2_variant_3: assetUrl('pocket-dice/cube_2_variant_3.mp3'),
+    cube_2_variant_5: assetUrl('pocket-dice/cube_2_variant_5.mp3'),
+    dice_select: assetUrl('pocket-dice/dice_select.mp3'),
+    error: assetUrl('pocket-dice/error.mp3'),
+    over_under: assetUrl('pocket-dice/over_under.mp3'),
+    risk: assetUrl('pocket-dice/risk.mp3'),
+    risk_end: assetUrl('pocket-dice/risk_end.mp3'),
+    risk_loop: assetUrl('pocket-dice/risk_loop.mp3'),
+    scoring: assetUrl('pocket-dice/scoring.mp3'),
+    start: assetUrl('pocket-dice/start.mp3'),
+    win: assetUrl('pocket-dice/win.mp3'),
+  }),
+  roulette: Object.freeze({
+    click: assetUrl('roulette/click.wav'),
+    result: assetUrl('roulette/result.mp3'),
+    spin: assetUrl('roulette/spin.mp3'),
+  }),
+  twist: Object.freeze({
+    bet_click: assetUrl('twist/bet_click.mp3'),
+    bonus_spin: assetUrl('twist/bonus_spin.mp3'),
+    cashout_all: assetUrl('twist/cashout_all.mp3'),
+    cashout_click: assetUrl('twist/cashout_click.mp3'),
+    cashout_latest: assetUrl('twist/cashout_latest.mp3'),
+    lose: assetUrl('twist/lose.mp3'),
+    orange_segment_1: assetUrl('twist/orange_segment_1.mp3'),
+    orange_segment_2: assetUrl('twist/orange_segment_2.mp3'),
+    orange_segment_3: assetUrl('twist/orange_segment_3.mp3'),
+    orange_segment_4: assetUrl('twist/orange_segment_4.mp3'),
+    orange_segment_5: assetUrl('twist/orange_segment_5.mp3'),
+    orange_segment_6: assetUrl('twist/orange_segment_6.mp3'),
+    orange_segment_7: assetUrl('twist/orange_segment_7.mp3'),
+    orange_segment_8: assetUrl('twist/orange_segment_8.mp3'),
+    scull_stop: assetUrl('twist/scull_stop.mp3'),
+    segment_1: assetUrl('twist/segment_1.mp3'),
+    segment_2: assetUrl('twist/segment_2.mp3'),
+    segment_3: assetUrl('twist/segment_3.mp3'),
+    segment_4: assetUrl('twist/segment_4.mp3'),
+    segment_5: assetUrl('twist/segment_5.mp3'),
+    segment_6: assetUrl('twist/segment_6.mp3'),
+    segment_unfill: assetUrl('twist/segment_unfill.mp3'),
+    star_stop: assetUrl('twist/star_stop.mp3'),
+    symbols_spin_end: assetUrl('twist/symbols_spin_end.mp3'),
+    symbols_spin_start: assetUrl('twist/symbols_spin_start.mp3'),
+    symbols_spin_tick: assetUrl('twist/symbols_spin_tick.mp3'),
+    win: assetUrl('twist/win.mp3'),
+  }),
+});
 
-/** Ascending major pentatonic run used for the big-win fanfare. */
-const FANFARE_STEPS = Object.freeze([0, 4, 7, 12, 16, 19]);
+const CUE_ALIASES = Object.freeze({
+  'twist.orange_segment_unfill': 'twist.orange_segment_8',
+  'hilo.bet': 'dice.bet',
+  'hilo.multiplier': 'dice.multiplier',
+  'hilo.win': 'dice.win',
+  'roulette.bet': 'dice.bet',
+  'roulette.multiplier': 'dice.multiplier',
+  'roulette.win': 'dice.win',
+  'crash.bet': 'dice.bet',
+  'crash.multiplier': 'dice.multiplier',
+  'crash.win': 'dice.win',
+});
 
-/** Above this multiplier a landing gets the full fanfare treatment. */
-const FANFARE_THRESHOLD = 10;
+const GAME_ALIASES = Object.freeze({
+  pocketdice: 'pocket-dice',
+  pocket_dice: 'pocket-dice',
+});
 
-/** Hard ceiling on simultaneous peg voices; excess ticks are dropped. */
-const MAX_PEG_VOICES = 10;
+function clamp01(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 1;
+  return number < 0 ? 0 : number > 1 ? 1 : number;
+}
 
-/** Never ramp exponentially to zero — Web Audio requires a positive target. */
-const SILENCE = 0.0001;
+function clampRate(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 1;
+  return number < 0.25 ? 0.25 : number > 4 ? 4 : number;
+}
 
-const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+function clampVoices(value, fallback) {
+  const number = Math.floor(Number(value));
+  if (!Number.isFinite(number) || number < 1) return fallback;
+  return Math.min(number, 12);
+}
+
+function normalizeGame(game) {
+  const normalized = String(game ?? '').toLowerCase();
+  return GAME_ALIASES[normalized] || normalized;
+}
+
+function keyFor(game, cue) {
+  return `${normalizeGame(game)}.${cue}`;
+}
+
+function baseConfig(cue) {
+  let voices = 3;
+  const loop = cue.includes('loop');
+  if (loop) voices = 1;
+  else if (cue === 'tick') voices = 8;
+  else if (cue.startsWith('segment_') || cue.startsWith('orange_segment_')) voices = 4;
+  else if (cue.includes('click') || cue.includes('select') || cue === 'bet' || cue === 'draw') voices = 4;
+  else if (cue.includes('start') || cue.includes('end') || cue.includes('win') || cue.includes('lose')) voices = 2;
+  return { loop, voices };
+}
+
+function resolveEntry(game, cue) {
+  const seen = new Set();
+  let key = keyFor(game, cue);
+
+  while (key && !seen.has(key)) {
+    seen.add(key);
+    const cut = key.indexOf('.');
+    if (cut === -1) return null;
+
+    const resolvedGame = key.slice(0, cut);
+    const resolvedCue = key.slice(cut + 1);
+    const direct = FILES[resolvedGame];
+    if (direct?.[resolvedCue]) {
+      return {
+        key,
+        src: direct[resolvedCue],
+        ...baseConfig(resolvedCue),
+      };
+    }
+    key = CUE_ALIASES[key] || null;
+  }
+
+  return null;
+}
+
+function resetNode(node) {
+  if (!node) return;
+  try { node.pause(); } catch {}
+  try { node.loop = false; } catch {}
+  try { node.currentTime = 0; } catch {}
+}
 
 export class PlinkoAudio {
-  /** @type {AudioContext | null} */
-  #ctx = null;
-  /** @type {GainNode | null} */
-  #bus = null;
-  /** @type {GainNode | null} */
-  #master = null;
-  /** @type {AudioBuffer | null} */
-  #noiseBuffer = null;
-  #pegVoices = 0;
+  #assets = new Map();
+  #gameCues = new Map();
+  #activeHandles = [];
+  #nextHandleId = 1;
+  #unlocked = false;
+  #unlockPromise = null;
+  #unlockNode = null;
   #volume = 0.7;
   #muted = false;
-  #unavailable = false;
+  #disposed = false;
+  #document = globalThis.document;
+  #visibilityHandler = () => this.#syncSystemState();
+  #unlockHandler = () => {
+    void this.resume();
+    this.#removeUnlockListeners();
+  };
 
   /**
    * @param {object} [options]
@@ -60,17 +218,16 @@ export class PlinkoAudio {
    * @param {boolean} [options.persist] Persist volume/mute to localStorage. Default true.
    */
   constructor({ volume = 0.7, muted = false, persist = true } = {}) {
-    this.persist = persist;
+    this.persist = Boolean(persist);
     this.#volume = clamp01(volume);
     this.#muted = Boolean(muted);
-    if (persist) this.#loadSettings();
+    if (this.persist) this.#loadSettings();
+
+    this.#document?.addEventListener('visibilitychange', this.#visibilityHandler, true);
+    this.#document?.addEventListener('pointerdown', this.#unlockHandler, true);
+    this.#document?.addEventListener('keydown', this.#unlockHandler, true);
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Public state                                                            */
-  /* ---------------------------------------------------------------------- */
-
-  /** @returns {boolean} */
   get muted() {
     return this.#muted;
   }
@@ -79,359 +236,309 @@ export class PlinkoAudio {
     const next = Boolean(value);
     if (next === this.#muted) return;
     this.#muted = next;
-    this.#applyVolume();
+    this.#syncSystemState();
     this.#saveSettings();
   }
 
-  /** @returns {number} 0-1 */
   get volume() {
     return this.#volume;
   }
 
   set volume(value) {
-    const next = clamp01(Number(value));
-    if (!Number.isFinite(next) || next === this.#volume) return;
+    const next = clamp01(value);
+    if (next === this.#volume) return;
     this.#volume = next;
-    this.#applyVolume();
+    this.#syncSystemState();
     this.#saveSettings();
   }
 
-  /** True once the AudioContext exists and is running. */
   get ready() {
-    return this.#ctx !== null && this.#ctx.state === 'running';
+    return this.#unlocked;
   }
 
-  /**
-   * Flip mute.
-   * @returns {boolean} The new mute state.
-   */
   toggleMute() {
     this.muted = !this.#muted;
     return this.#muted;
   }
 
-  /**
-   * Set volume.
-   * @param {number} value 0-1.
-   * @returns {number} The clamped value that was applied.
-   */
   setVolume(value) {
     this.volume = value;
     return this.#volume;
   }
 
-  /**
-   * Create/unlock the AudioContext. Must be called from a user gesture the
-   * first time; safe to call repeatedly afterwards.
-   * @returns {Promise<boolean>} Whether audio is running.
-   */
   async resume() {
-    const ctx = this.#ensureContext();
-    if (!ctx) return false;
-    if (ctx.state === 'suspended') {
-      try {
-        await ctx.resume();
-      } catch {
-        return false;
+    if (this.#disposed || typeof globalThis.Audio !== 'function') return false;
+    if (this.#unlocked && !this.#unlockPromise) {
+      this.#syncSystemState();
+      return true;
+    }
+    if (!this.#unlockPromise) this.#unlockPromise = this.#unlockAudio();
+    return this.#unlockPromise;
+  }
+
+  warm(game, cues) {
+    if (this.#disposed || typeof globalThis.Audio !== 'function') return 0;
+    const list = cues == null ? this.#cueListFor(game) : (Array.isArray(cues) ? cues : [cues]);
+    const seen = new Set();
+    let warmed = 0;
+
+    for (const cue of list) {
+      const entry = resolveEntry(game, cue);
+      if (!entry || seen.has(entry.key)) continue;
+      seen.add(entry.key);
+      const asset = this.#assetFor(entry);
+      const node = asset.nodes[0] || this.#createNode(asset);
+      try { node.load(); } catch {}
+      warmed++;
+    }
+
+    return warmed;
+  }
+
+  play(game, cue, options = {}) {
+    const entry = resolveEntry(game, cue);
+    if (this.#disposed || !entry || typeof globalThis.Audio !== 'function') return null;
+
+    const asset = this.#assetFor(entry);
+    const limit = clampVoices(options.voices, asset.voices);
+    const loop = options.loop == null ? asset.loop : Boolean(options.loop);
+    const node = this.#pickNode(asset, limit, loop);
+    const current = node.__casinoHandle;
+    if (current) this.#stopHandle(current);
+
+    const handle = {
+      id: this.#nextHandleId++,
+      node,
+      loop,
+      volume: options.volume == null ? 1 : clamp01(options.volume),
+      rate: clampRate(options.rate),
+      startedAt: this.#now(),
+      resumePending: false,
+      stopped: false,
+    };
+    node.__casinoHandle = handle;
+    this.#activeHandles.push(handle);
+    this.#syncNode(handle);
+
+    if (loop) {
+      if (this.#canPlay()) this.#playNode(handle, true);
+      else handle.resumePending = true;
+      return () => this.#stopHandle(handle);
+    }
+
+    if (!this.#canPlay()) {
+      this.#stopHandle(handle);
+      return null;
+    }
+    if (!this.#playNode(handle, true)) return null;
+    return () => this.#stopHandle(handle);
+  }
+
+  stop(game, cue) {
+    const entry = resolveEntry(game, cue);
+    if (!entry) return;
+    const asset = this.#assets.get(entry.key);
+    if (!asset) return;
+
+    for (const node of asset.nodes) {
+      const handle = node.__casinoHandle;
+      if (handle) this.#stopHandle(handle);
+      else resetNode(node);
+    }
+  }
+
+  playButtonClick() {
+    return this.play('roulette', 'click', { volume: 0.65, voices: 4 });
+  }
+
+  dispose() {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    this.#document?.removeEventListener('visibilitychange', this.#visibilityHandler, true);
+    this.#removeUnlockListeners();
+
+    for (const handle of [...this.#activeHandles]) this.#stopHandle(handle);
+    for (const asset of this.#assets.values()) {
+      for (const node of asset.nodes) resetNode(node);
+    }
+    resetNode(this.#unlockNode);
+
+    this.#activeHandles = [];
+    this.#assets.clear();
+    this.#gameCues.clear();
+    this.#unlocked = false;
+    this.#unlockNode = null;
+    this.#unlockPromise = null;
+  }
+
+  #cueListFor(game) {
+    const normalized = normalizeGame(game);
+    if (!this.#gameCues.has(normalized)) {
+      const cues = new Set(Object.keys(FILES[normalized] || {}));
+      for (const aliasKey of Object.keys(CUE_ALIASES)) {
+        if (aliasKey.startsWith(`${normalized}.`)) cues.add(aliasKey.slice(normalized.length + 1));
+      }
+      this.#gameCues.set(normalized, [...cues].sort());
+    }
+    return this.#gameCues.get(normalized);
+  }
+
+  #assetFor(entry) {
+    if (!this.#assets.has(entry.key)) {
+      this.#assets.set(entry.key, {
+        key: entry.key,
+        src: entry.src,
+        loop: entry.loop,
+        voices: entry.voices,
+        nodes: [],
+      });
+    }
+    return this.#assets.get(entry.key);
+  }
+
+  #createNode(asset) {
+    const node = new globalThis.Audio(asset.src);
+    node.preload = 'auto';
+    node.playsInline = true;
+    node.__casinoHandle = null;
+    node.addEventListener('ended', () => {
+      const handle = node.__casinoHandle;
+      if (handle && !handle.loop) this.#stopHandle(handle);
+    });
+    node.addEventListener('error', () => {
+      const handle = node.__casinoHandle;
+      if (handle) this.#stopHandle(handle);
+    });
+    asset.nodes.push(node);
+    return node;
+  }
+
+  #pickNode(asset, limit, loop) {
+    for (const node of asset.nodes) {
+      const handle = node.__casinoHandle;
+      if (!handle || handle.stopped) return node;
+      if (!handle.loop && (node.ended || node.paused)) return node;
+    }
+    if (asset.nodes.length < limit) return this.#createNode(asset);
+    if (loop) return asset.nodes[0];
+
+    let fallback = asset.nodes[0];
+    for (let index = 1; index < asset.nodes.length; index++) {
+      const node = asset.nodes[index];
+      if (node.__casinoHandle.startedAt < fallback.__casinoHandle.startedAt) fallback = node;
+    }
+    return fallback;
+  }
+
+  #liveVolume(handle) {
+    if (this.#muted || !this.#visible()) return 0;
+    return clamp01(handle.volume) * this.#volume;
+  }
+
+  #syncNode(handle) {
+    const node = handle?.node;
+    if (!node) return;
+    try { node.loop = handle.loop; } catch {}
+    try { node.playbackRate = handle.rate; } catch {}
+    try { node.volume = this.#liveVolume(handle); } catch {}
+  }
+
+  #playNode(handle, restart) {
+    const { node } = handle;
+    this.#syncNode(handle);
+    if (restart) {
+      try { node.currentTime = 0; } catch {}
+    }
+
+    let promise;
+    try {
+      promise = node.play();
+    } catch {
+      this.#stopHandle(handle);
+      return false;
+    }
+    if (promise?.catch) {
+      promise.catch(() => {
+        if (handle.stopped || node.__casinoHandle !== handle) return;
+        if (handle.loop && !this.#canPlay()) {
+          handle.resumePending = true;
+          return;
+        }
+        this.#stopHandle(handle);
+      });
+    }
+    return true;
+  }
+
+  #stopHandle(handle) {
+    if (!handle || handle.stopped) return;
+    handle.stopped = true;
+    handle.resumePending = false;
+    const index = this.#activeHandles.indexOf(handle);
+    if (index !== -1) this.#activeHandles.splice(index, 1);
+    if (handle.node?.__casinoHandle === handle) handle.node.__casinoHandle = null;
+    resetNode(handle.node);
+  }
+
+  #syncSystemState() {
+    for (const handle of [...this.#activeHandles]) {
+      if (!handle || handle.stopped) continue;
+      this.#syncNode(handle);
+      if (!handle.loop) continue;
+
+      if (this.#canPlay()) {
+        if (handle.resumePending || handle.node.paused) {
+          handle.resumePending = false;
+          this.#playNode(handle, false);
+        }
+      } else {
+        handle.resumePending = true;
+        if (!handle.node.paused) {
+          try { handle.node.pause(); } catch {}
+        }
       }
     }
-    return ctx.state === 'running';
   }
 
-  /** Release the AudioContext and its graph. */
-  dispose() {
-    const ctx = this.#ctx;
-    this.#ctx = this.#bus = this.#master = this.#noiseBuffer = null;
-    this.#pegVoices = 0;
-    if (ctx && typeof ctx.close === 'function') ctx.close().catch(() => {});
-  }
-
-  /* ---------------------------------------------------------------------- */
-  /* Sound effects                                                           */
-  /* ---------------------------------------------------------------------- */
-
-  /**
-   * Short percussive tick for a ball striking a peg.
-   *
-   * @param {number} [progress] Optional 0-1 descent position. When supplied the
-   *   pitch climbs the scale as the ball falls, which reads as accelerating
-   *   descent; omit it for a random scale degree.
-   */
-  playPegHit(progress) {
-    const ctx = this.#activeContext();
-    if (!ctx) return;
-    // Dropping ticks past the cap keeps a 16-row multi-ball board from turning
-    // into a wall of noise, and bounds the node count.
-    if (this.#pegVoices >= MAX_PEG_VOICES) return;
-
-    const last = PEG_SCALE.length - 1;
-    const step = Number.isFinite(progress)
-      ? Math.min(last, Math.max(0, Math.round(clamp01(progress) * last)))
-      : (Math.random() * PEG_SCALE.length) | 0;
-    // A few cents of detune stops repeated hits on the same peg row from
-    // sounding like a machine gun.
-    const freq = PEG_SCALE[step] * (1 + (Math.random() - 0.5) * 0.02);
-
-    // Voices are attenuated as the board gets busy so density never clips.
-    const level = 0.18 / (1 + this.#pegVoices * 0.22);
-    const t0 = ctx.currentTime;
-
-    this.#pegVoices++;
-    const osc = this.#tone({
-      type: 'triangle',
-      freq,
-      endFreq: freq * 0.82,
-      t0,
-      attack: 0.001,
-      decay: 0.055,
-      peak: level,
-    });
-    if (osc) {
-      osc.addEventListener('ended', () => {
-        this.#pegVoices = Math.max(0, this.#pegVoices - 1);
-      });
-    } else {
-      this.#pegVoices = Math.max(0, this.#pegVoices - 1);
-    }
-
-    // Bright noise transient: the plastic "clack" that sells the impact.
-    this.#noise({ t0, duration: 0.012, peak: level * 0.6, type: 'highpass', freq: 2600 });
-  }
-
-  /**
-   * Landing sound. Tone and length scale with the payout: losses land dull and
-   * low, wins climb brighter, and anything above 10x gets a full fanfare.
-   *
-   * @param {number} [multiplier] The bucket multiplier that was hit.
-   */
-  playBucketHit(multiplier = 1) {
-    const ctx = this.#activeContext();
-    if (!ctx) return;
-
-    const value = Number.isFinite(multiplier) ? Math.max(0, multiplier) : 1;
-    const t0 = ctx.currentTime;
-
-    // Physical impact under every landing, regardless of payout.
-    this.#tone({ type: 'sine', freq: 150, endFreq: 62, t0, attack: 0.002, decay: 0.19, peak: 0.3 });
-    this.#noise({ t0, duration: 0.05, peak: 0.1, type: 'lowpass', freq: 1400 });
-
-    if (value >= FANFARE_THRESHOLD) {
-      this.#playFanfare(t0, value);
-    } else if (value < 1) {
-      // Loss: a downward minor second, deliberately deflating.
-      this.#tone({ type: 'sawtooth', freq: midiToFreq(55), endFreq: midiToFreq(52), t0: t0 + 0.03, attack: 0.006, decay: 0.34, peak: 0.09, filter: 900 });
-      this.#tone({ type: 'sine', freq: midiToFreq(43), t0: t0 + 0.03, attack: 0.006, decay: 0.4, peak: 0.08 });
-    } else if (value < 2) {
-      // Break-even: one clean, neutral bell.
-      this.#bell(midiToFreq(76), t0 + 0.02, 0.34, 0.13);
-    } else {
-      // Real win: a rising triad, pitched up with the payout.
-      const root = 74 + Math.min(10, Math.round(Math.log2(value) * 3));
-      [0, 4, 7].forEach((semitone, i) => {
-        this.#bell(midiToFreq(root + semitone), t0 + 0.02 + i * 0.065, 0.38, 0.12);
-      });
-    }
-  }
-
-  /** Soft UI click for buttons and control changes. */
-  playButtonClick() {
-    const ctx = this.#activeContext();
-    if (!ctx) return;
-    const t0 = ctx.currentTime;
-    this.#tone({ type: 'square', freq: 1250, endFreq: 780, t0, attack: 0.001, decay: 0.035, peak: 0.055 });
-    this.#noise({ t0, duration: 0.018, peak: 0.05, type: 'bandpass', freq: 3200, Q: 1.2 });
-  }
-
-  /* ---------------------------------------------------------------------- */
-  /* Voices                                                                  */
-  /* ---------------------------------------------------------------------- */
-
-  /**
-   * Celebratory run for big wins: an ascending pentatonic arpeggio over a
-   * sustained chord, topped with a shimmer sweep. Scales with the payout.
-   * @param {number} t0
-   * @param {number} value
-   */
-  #playFanfare(t0, value) {
-    const root = 72 + Math.min(7, Math.round(Math.log10(value) * 4));
-    const start = t0 + 0.02;
-
-    for (let i = 0; i < FANFARE_STEPS.length; i++) {
-      const when = start + i * 0.075;
-      this.#bell(midiToFreq(root + FANFARE_STEPS[i]), when, 0.45, 0.13);
-      // Octave sparkle above each step, quiet, for brightness.
-      this.#tone({ type: 'sine', freq: midiToFreq(root + FANFARE_STEPS[i] + 12), t0: when, attack: 0.004, decay: 0.2, peak: 0.035 });
-    }
-
-    // Sustained pad underneath so the run has a body to sit on.
-    const tail = start + FANFARE_STEPS.length * 0.075;
-    for (const semitone of [0, 7, 12]) {
-      this.#tone({ type: 'triangle', freq: midiToFreq(root + semitone), t0: tail, attack: 0.03, decay: 0.75, peak: 0.055, filter: 5200 });
-    }
-    // Rising noise shimmer.
-    this.#noise({ t0: start, duration: 0.5, peak: 0.045, type: 'bandpass', freq: 3000, Q: 0.9, sweepTo: 9000 });
-  }
-
-  /**
-   * Struck-bell voice: a fundamental plus a slightly detuned upper partial.
-   * @param {number} freq
-   * @param {number} t0
-   * @param {number} decay
-   * @param {number} peak
-   */
-  #bell(freq, t0, decay, peak) {
-    this.#tone({ type: 'sine', freq, t0, attack: 0.003, decay, peak });
-    this.#tone({ type: 'sine', freq: freq * 2.01, t0, attack: 0.003, decay: decay * 0.5, peak: peak * 0.32 });
-    this.#tone({ type: 'triangle', freq: freq * 3, t0, attack: 0.002, decay: decay * 0.22, peak: peak * 0.14 });
-  }
-
-  /**
-   * One oscillator voice with an exponential percussive envelope.
-   * @returns {OscillatorNode | null}
-   */
-  #tone({ type, freq, endFreq, t0, attack, decay, peak, filter }) {
-    const ctx = this.#ctx;
-    if (!ctx || !this.#bus) return null;
-
-    const osc = ctx.createOscillator();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t0);
-    if (endFreq && endFreq !== freq) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(endFreq, 1), t0 + attack + decay);
-    }
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(SILENCE, t0);
-    gain.gain.exponentialRampToValueAtTime(peak, t0 + attack);
-    gain.gain.exponentialRampToValueAtTime(SILENCE, t0 + attack + decay);
-
-    let node = /** @type {AudioNode} */ (osc);
-    if (filter) {
-      const lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(filter, t0);
-      node.connect(lp);
-      node = lp;
-    }
-    node.connect(gain).connect(this.#bus);
-
-    osc.start(t0);
-    osc.stop(t0 + attack + decay + 0.02);
-    osc.addEventListener('ended', () => {
-      osc.disconnect();
-      gain.disconnect();
-      if (node !== osc) node.disconnect();
-    });
-    return osc;
-  }
-
-  /**
-   * Filtered white-noise burst, optionally sweeping its filter upward.
-   */
-  #noise({ t0, duration, peak, type = 'bandpass', freq = 2000, Q = 0.8, sweepTo }) {
-    const ctx = this.#ctx;
-    if (!ctx || !this.#bus) return;
-    const buffer = this.#ensureNoiseBuffer();
-    if (!buffer) return;
-
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    // Start at a random point in the buffer so repeated bursts differ.
-    const offset = Math.random() * Math.max(0, buffer.duration - duration);
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = type;
-    filter.Q.value = Q;
-    filter.frequency.setValueAtTime(freq, t0);
-    if (sweepTo) filter.frequency.exponentialRampToValueAtTime(sweepTo, t0 + duration);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(peak, t0);
-    gain.gain.exponentialRampToValueAtTime(SILENCE, t0 + duration);
-
-    src.connect(filter).connect(gain).connect(this.#bus);
-    src.start(t0, offset, duration);
-    src.addEventListener('ended', () => {
-      src.disconnect();
-      filter.disconnect();
-      gain.disconnect();
-    });
-  }
-
-  /* ---------------------------------------------------------------------- */
-  /* Graph + persistence                                                     */
-  /* ---------------------------------------------------------------------- */
-
-  /** The context, but only when it is actually producing sound. */
-  #activeContext() {
-    if (this.#muted) return null;
-    const ctx = this.#ensureContext();
-    return ctx && ctx.state === 'running' ? ctx : null;
-  }
-
-  /** @returns {AudioContext | null} */
-  #ensureContext() {
-    if (this.#ctx) return this.#ctx;
-    if (this.#unavailable) return null;
-
-    const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext;
-    if (!Ctor) {
-      this.#unavailable = true;
-      return null;
-    }
-
+  async #unlockAudio() {
+    this.#unlocked = true;
+    let node;
     try {
-      const ctx = new Ctor();
-      const bus = ctx.createGain();
-      bus.gain.value = 1;
-
-      // Tame the peaks of dense peg bursts instead of letting them clip.
-      const compressor = ctx.createDynamicsCompressor();
-      // Threshold/knee are set so a lone peg tick passes through untouched and
-      // only genuinely dense bursts get pulled down. A wider knee here audibly
-      // flattens the gap between a quiet tick and a fanfare.
-      compressor.threshold.value = -14;
-      compressor.knee.value = 10;
-      compressor.ratio.value = 6;
-      compressor.attack.value = 0.003;
-      compressor.release.value = 0.16;
-
-      const master = ctx.createGain();
-      master.gain.value = this.#muted ? 0 : this.#volume;
-
-      bus.connect(compressor).connect(master).connect(ctx.destination);
-
-      this.#ctx = ctx;
-      this.#bus = bus;
-      this.#master = master;
-      return ctx;
+      node = new globalThis.Audio(UNLOCK_SAMPLE);
+      this.#unlockNode = node;
+      node.preload = 'auto';
+      node.muted = true;
+      node.volume = 0;
+      const promise = node.play();
+      if (promise?.then) await promise;
+      resetNode(node);
+      if (this.#disposed) return false;
+      this.#syncSystemState();
+      return true;
     } catch {
-      this.#unavailable = true;
-      return null;
+      if (!this.#disposed) this.#unlocked = false;
+      return false;
+    } finally {
+      if (this.#unlockNode === node) this.#unlockNode = null;
+      this.#unlockPromise = null;
     }
   }
 
-  /** @returns {AudioBuffer | null} */
-  #ensureNoiseBuffer() {
-    if (this.#noiseBuffer) return this.#noiseBuffer;
-    const ctx = this.#ctx;
-    if (!ctx) return null;
-    // One second of white noise, generated once and shared by every burst.
-    const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    this.#noiseBuffer = buffer;
-    return buffer;
+  #canPlay() {
+    return this.#unlocked && !this.#muted && this.#visible();
   }
 
-  /** Ramp rather than jump, so mute/volume changes never click. */
-  #applyVolume() {
-    if (!this.#master || !this.#ctx) return;
-    const target = this.#muted ? 0 : this.#volume;
-    const now = this.#ctx.currentTime;
-    this.#master.gain.cancelScheduledValues(now);
-    this.#master.gain.setValueAtTime(this.#master.gain.value, now);
-    this.#master.gain.linearRampToValueAtTime(target, now + 0.04);
+  #visible() {
+    return typeof this.#document?.hidden !== 'boolean' || !this.#document.hidden;
+  }
+
+  #now() {
+    return typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : Date.now();
+  }
+
+  #removeUnlockListeners() {
+    this.#document?.removeEventListener('pointerdown', this.#unlockHandler, true);
+    this.#document?.removeEventListener('keydown', this.#unlockHandler, true);
   }
 
   #loadSettings() {
@@ -442,7 +549,7 @@ export class PlinkoAudio {
       if (typeof saved.muted === 'boolean') this.#muted = saved.muted;
       if (Number.isFinite(saved.volume)) this.#volume = clamp01(saved.volume);
     } catch {
-      /* Corrupt or blocked storage: keep constructor defaults. */
+      // Corrupt or blocked storage keeps the constructor defaults.
     }
   }
 
@@ -454,7 +561,7 @@ export class PlinkoAudio {
         JSON.stringify({ muted: this.#muted, volume: this.#volume }),
       );
     } catch {
-      /* Private mode or quota: settings simply do not persist. */
+      // Private mode or quota errors do not prevent playback.
     }
   }
 }

@@ -316,108 +316,6 @@ export async function calculateBlackjackOutcome(serverSeed, clientSeed = '', non
 }
 
 /* -------------------------------------------------------------------------- */
-/* Web Audio Synthesizer (Fallback / Sound Effects)                           */
-/* -------------------------------------------------------------------------- */
-
-class BlackjackAudio {
-  constructor() {
-    this.ctx = null;
-  }
-
-  init() {
-    if (!this.ctx && typeof window !== 'undefined') {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.ctx = new AudioCtx();
-    }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
-    }
-  }
-
-  playCard() {
-    this.init();
-    if (!this.ctx) return;
-    try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(400, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.06);
-      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.06);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.06);
-    } catch {
-      /* ignore audio error */
-    }
-  }
-
-  playChip() {
-    this.init();
-    if (!this.ctx) return;
-    try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.04);
-      gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.04);
-    } catch {
-      /* ignore audio error */
-    }
-  }
-
-  playWin() {
-    this.init();
-    if (!this.ctx) return;
-    try {
-      const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-      notes.forEach((freq, idx) => {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, this.ctx.currentTime + idx * 0.08);
-        gain.gain.setValueAtTime(0.15, this.ctx.currentTime + idx * 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + idx * 0.08 + 0.25);
-        osc.connect(gain);
-        gain.connect(this.ctx.destination);
-        osc.start(this.ctx.currentTime + idx * 0.08);
-        osc.stop(this.ctx.currentTime + idx * 0.08 + 0.25);
-      });
-    } catch {
-      /* ignore audio error */
-    }
-  }
-
-  playLoss() {
-    this.init();
-    if (!this.ctx) return;
-    try {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(220, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 0.25);
-      gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.25);
-    } catch {
-      /* ignore audio error */
-    }
-  }
-}
-
-/* -------------------------------------------------------------------------- */
 /* BlackjackGame Main Class                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -466,7 +364,7 @@ export class BlackjackGame {
     }
 
     this.options = opts;
-    this.audio = opts.audio || new BlackjackAudio();
+    this.audio = opts.audio || null;
 
     // Callbacks
     this.onStateChange = opts.onStateChange || null;
@@ -507,6 +405,7 @@ export class BlackjackGame {
 
     // Card animations keyed by card object identity: { t0, dur, mode }
     this.cardAnim = new Map();
+    this.audioTimers = new Set();
     this.settleAt = 0;
     this.ghost = null;
 
@@ -588,6 +487,8 @@ export class BlackjackGame {
     if (this.state === 'playing' || this.state === 'dealer_turn') {
       return this.getState();
     }
+    this._clearAudioTimers();
+    this.audio?.play?.('blackjack', 'click');
 
     if (!serverSeed) {
       const pair = await createSeedPair();
@@ -607,10 +508,6 @@ export class BlackjackGame {
     this.state = 'playing';
     this.statusText = 'YOUR TURN: HIT, STAND, OR DOUBLE';
 
-    if (this.audio && typeof this.audio.playChip === 'function') {
-      this.audio.playChip();
-    }
-
     // Generate provably fair deck
     this.deck = await generateProvablyFairDeck(this.serverSeed, this.clientSeed, this.nonce);
 
@@ -626,10 +523,6 @@ export class BlackjackGame {
     this.settleAt = 0;
     this.ghost = null;
     this.scheduleHand(this.playerHand[0], this.dealerHand[0], this.playerHand[1], this.dealerHand[1]);
-
-    if (this.audio && typeof this.audio.playCard === 'function') {
-      this.audio.playCard();
-    }
 
     // Check for natural Blackjacks
     const pScoreInit = calculateHandScore(this.playerHand);
@@ -651,14 +544,12 @@ export class BlackjackGame {
         this.multiplier = 2.5; // 3:2 payout (1.5x profit + 1.0x stake = 2.5x total payout)
         this.payout = this.effectiveBet * 2.5;
         this.statusText = `BLACKJACK! WON ${this.payout.toFixed(2)} (3:2)`;
-        if (this.audio && typeof this.audio.playWin === 'function') this.audio.playWin();
         if (this.onWin) this.onWin(this.payout, this.multiplier);
       } else {
         this.result = 'loss';
         this.multiplier = 0.0;
         this.payout = 0.0;
         this.statusText = 'DEALER HAS BLACKJACK - DEALER WINS';
-        if (this.audio && typeof this.audio.playLoss === 'function') this.audio.playLoss();
         if (this.onLoss) this.onLoss();
       }
     }
@@ -685,6 +576,7 @@ export class BlackjackGame {
     if (this.state !== 'playing') {
       return this.getState();
     }
+    this.audio?.play?.('blackjack', 'click');
 
     if (this.deck.length === 0) {
       this.deck = createStandardDeck();
@@ -694,28 +586,24 @@ export class BlackjackGame {
     this.playerHand.push(card);
     this.scheduleDeal(card);
 
-    if (this.audio && typeof this.audio.playCard === 'function') {
-      this.audio.playCard();
-    }
-
     const pScore = calculateHandScore(this.playerHand);
 
     if (pScore.isBust) {
       // Player busts immediately
       this.dealerHand[1].faceUp = true;
+      this.scheduleFlip(this.dealerHand[1]);
       this.state = 'game_over';
       this.result = 'loss';
       this.multiplier = 0.0;
       this.payout = 0.0;
       this.statusText = `BUST (${pScore.score}) - DEALER WINS`;
 
-      if (this.audio && typeof this.audio.playLoss === 'function') this.audio.playLoss();
       if (this.onLoss) this.onLoss();
       this.emitStateChange();
     } else if (pScore.score === 21) {
       // Auto-stand on 21
       this.notifyUpdate();
-      return this.stand();
+      return this.stand(false);
     } else {
       this.statusText = `PLAYER TOTAL: ${pScore.score}${pScore.isSoft ? ' (SOFT)' : ''}`;
     }
@@ -738,10 +626,11 @@ export class BlackjackGame {
    * Player ends turn; Dealer reveals hidden card and hits until total >= 17.
    * @returns {object} Final round outcome.
    */
-  stand() {
+  stand(playClick = true) {
     if (this.state !== 'playing') {
       return this.getState();
     }
+    if (playClick) this.audio?.play?.('blackjack', 'click');
 
     this.state = 'dealer_turn';
 
@@ -751,10 +640,6 @@ export class BlackjackGame {
       this.dealerHand[1].faceUp = true;
       this.scheduleFlip(this.dealerHand[1]);
       drawDelay = FLIP_MS;
-    }
-
-    if (this.audio && typeof this.audio.playCard === 'function') {
-      this.audio.playCard();
     }
 
     // Dealer draws while total < 17
@@ -779,7 +664,6 @@ export class BlackjackGame {
       this.multiplier = 2.0;
       this.payout = this.effectiveBet * 2.0;
       this.statusText = `DEALER BUST (${dScore}) - YOU WIN ${this.payout.toFixed(2)}`;
-      if (this.audio && typeof this.audio.playWin === 'function') this.audio.playWin();
       if (this.onWin) this.onWin(this.payout, this.multiplier);
     } else if (pScore > dScore) {
       // Player higher
@@ -787,7 +671,6 @@ export class BlackjackGame {
       this.multiplier = 2.0;
       this.payout = this.effectiveBet * 2.0;
       this.statusText = `YOU WIN (${pScore} vs ${dScore}) - ${this.payout.toFixed(2)}`;
-      if (this.audio && typeof this.audio.playWin === 'function') this.audio.playWin();
       if (this.onWin) this.onWin(this.payout, this.multiplier);
     } else if (pScore < dScore) {
       // Dealer higher
@@ -795,7 +678,6 @@ export class BlackjackGame {
       this.multiplier = 0.0;
       this.payout = 0.0;
       this.statusText = `DEALER WINS (${dScore} vs ${pScore})`;
-      if (this.audio && typeof this.audio.playLoss === 'function') this.audio.playLoss();
       if (this.onLoss) this.onLoss();
     } else {
       // Push
@@ -831,33 +713,26 @@ export class BlackjackGame {
     if (this.state !== 'playing' || this.playerHand.length !== 2) {
       return this.getState();
     }
+    this.audio?.play?.('blackjack', 'click');
 
     this.effectiveBet = this.betAmount * 2;
-
-    if (this.audio && typeof this.audio.playChip === 'function') {
-      this.audio.playChip();
-    }
 
     // Draw exactly 1 card
     const card = this.deck.pop();
     this.playerHand.push(card);
     this.scheduleDeal(card);
 
-    if (this.audio && typeof this.audio.playCard === 'function') {
-      this.audio.playCard();
-    }
-
     const pScore = calculateHandScore(this.playerHand);
 
     if (pScore.isBust) {
       this.dealerHand[1].faceUp = true;
+      this.scheduleFlip(this.dealerHand[1]);
       this.state = 'game_over';
       this.result = 'loss';
       this.multiplier = 0.0;
       this.payout = 0.0;
       this.statusText = `DOUBLE DOWN BUST (${pScore.score}) - DEALER WINS`;
 
-      if (this.audio && typeof this.audio.playLoss === 'function') this.audio.playLoss();
       if (this.onLoss) this.onLoss();
       this.emitStateChange();
 
@@ -884,7 +759,7 @@ export class BlackjackGame {
     }
 
     // Automatically proceed to stand
-    return this.stand();
+    return this.stand(false);
   }
 
   /**
@@ -969,15 +844,48 @@ export class BlackjackGame {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
   }
 
+  _scheduleAudio(callback, delay) {
+    if (delay <= 0) {
+      callback();
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.audioTimers.delete(timer);
+      callback();
+    }, delay);
+    this.audioTimers.add(timer);
+  }
+
+  _clearAudioTimers() {
+    for (const timer of this.audioTimers) clearTimeout(timer);
+    this.audioTimers.clear();
+  }
+
   /**
    * Queue a slide-out-of-the-shoe animation for one card.
    * @param {object} card
    * @param {number} [delay=0] ms before the card leaves the shoe.
    */
   scheduleDeal(card, delay = 0) {
-    if (!card || this.reducedMotion) return;
+    if (!card) return;
+    if (this.reducedMotion) {
+      this.audio?.play?.('blackjack', 'deal', { volume: 0.4, voices: 6 });
+      if (card.faceUp !== false) this.audio?.play?.('blackjack', 'flip', { volume: 0.6 });
+      return;
+    }
+
     const t0 = this.now() + delay;
-    this.cardAnim.set(card, { t0, dur: DEAL_MS, mode: 'deal' });
+    const animation = { t0, dur: DEAL_MS, mode: 'deal' };
+    this.cardAnim.set(card, animation);
+    this._scheduleAudio(
+      () => this.audio?.play?.('blackjack', 'deal', { volume: 0.4, voices: 6 }),
+      delay + Math.round(DEAL_MS * 0.34)
+    );
+    this._scheduleAudio(() => {
+      if (this.cardAnim.get(card) === animation && card.faceUp !== false) {
+        this.audio?.play?.('blackjack', 'flip', { volume: 0.6 });
+      }
+    }, delay + Math.round(DEAL_MS * 0.68));
     if (t0 + DEAL_MS > this.settleAt) this.settleAt = t0 + DEAL_MS;
     this.dirty = true;
   }
@@ -988,9 +896,20 @@ export class BlackjackGame {
    * @param {number} [delay=0]
    */
   scheduleFlip(card, delay = 0) {
-    if (!card || this.reducedMotion) return;
+    if (!card) return;
+    if (this.reducedMotion) {
+      this.audio?.play?.('blackjack', 'flip', { volume: 0.6 });
+      return;
+    }
+
     const t0 = this.now() + delay;
-    this.cardAnim.set(card, { t0, dur: FLIP_MS, mode: 'flip' });
+    const animation = { t0, dur: FLIP_MS, mode: 'flip' };
+    this.cardAnim.set(card, animation);
+    this._scheduleAudio(() => {
+      if (this.cardAnim.get(card) === animation) {
+        this.audio?.play?.('blackjack', 'flip', { volume: 0.6 });
+      }
+    }, delay);
     if (t0 + FLIP_MS > this.settleAt) this.settleAt = t0 + FLIP_MS;
     this.dirty = true;
   }
@@ -1861,6 +1780,7 @@ export class BlackjackGame {
   }
 
   destroy() {
+    this._clearAudioTimers();
     this.stopLoop();
     if (this._ro) { this._ro.disconnect(); this._ro = null; }
     if (typeof window !== 'undefined' && this.onWindowResize) {

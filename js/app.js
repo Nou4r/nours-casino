@@ -851,6 +851,25 @@ function setBet(value, { format = true } = {}) {
   save();
 }
 
+function playGameControlClick() {
+  switch (state.activeGame) {
+    case 'blackjack':
+      audio?.play?.('blackjack', 'click');
+      return;
+    case 'mines':
+      audio?.play?.('mines', 'cell_select');
+      return;
+    case 'roulette':
+      audio?.play?.('roulette', 'click', { volume: 0.62 });
+      return;
+    case 'twist':
+      audio?.play?.('twist', 'bet_click');
+      return;
+    default:
+      return;
+  }
+}
+
 function adjustBet(op) {
   const balance = Math.max(0, state.balance);
   const [lo, hi] = betBounds();
@@ -861,7 +880,7 @@ function adjustBet(op) {
     case 'double': setBet(clamp(round2(state.bet * 2), lo, Math.min(hi, Math.max(balance, lo)))); break;
     case 'max':    setBet(Math.max(lo, Math.floor(ceiling * 100) / 100)); break;
   }
-  audio?.playButtonClick();
+  playGameControlClick();
 }
 
 /* ------------------------------- Settling ------------------------------ */
@@ -888,6 +907,7 @@ function settle(id, reportedBucket) {
   const mult   = (rec.bet > 0 && payout < round2(rec.bet * full)) ? round2(payout / rec.bet) : full;
   const profit = round2(payout - rec.bet);
   state.balance = round2(state.balance + payout);
+  if (profit > 0) audio?.play?.('plinko', 'win');
 
   const s = state.stats;
   s.bets    += 1;
@@ -1011,6 +1031,7 @@ async function dropOne() {
     settle(id);                                       // pay it out anyway; never strand a stake
     return 'blocked';
   }
+  audio?.play?.('plinko', 'bet');
 
   save();
   return 'ok';
@@ -1160,7 +1181,7 @@ function primaryAction() {
   if (g === 'plinko') dropOne();
   else if (g === 'crash') playCrash();
   else if (g === 'twist') playTwist();
-  else if (g === 'limbo') playLimbo();
+  else if (g === 'limbo') playLimbo(true);
   else if (g === 'roulette') playRoulette();
   else if (g === 'pocket-dice') playPocketDice();
   else if (g === 'dice') playDice();
@@ -1168,7 +1189,6 @@ function primaryAction() {
   else if (g === 'keno') playKeno();
   else if (g === 'mines') playMines();
   else if (g === 'blackjack') playBlackjack();
-  audio?.playButtonClick();
 }
 
 async function playRoulette() {
@@ -1282,6 +1302,7 @@ async function playHilo() {
     hilo.setBet?.(bet);
     const nonce = ++state.nonce;
     el.miniNonce.textContent = fmtInt(nonce);
+    audio?.play?.('hilo', 'bet');
     try {
       await trackRound(hilo.startRound(state.serverSeed, state.clientSeed, nonce));
       toast('Hilo started! Guess Higher, Lower, or Same', 'info');
@@ -1582,10 +1603,11 @@ function cashoutTwist() {
   toast(`Cashed out at ${fmtMult(mult)} (${fmtSigned(payout - wager)})`, 'ok');
 }
 
-async function playLimbo() {
+async function playLimbo(manual = false) {
   if (!limbo) return;
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (manual) audio?.play?.('limbo', 'roll_click');
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -2286,7 +2308,7 @@ function bindEvents() {
     state.mode = btn.dataset.mode;
     renderMode();
     save();
-    audio?.playButtonClick();
+    playGameControlClick();
   });
 
   /* Blackjack buttons */
@@ -2301,7 +2323,6 @@ function bindEvents() {
       toast(`Blackjack: ${String(res.result || 'OVER').toUpperCase()} (${fmtSigned(payout - wager)})`, payout > wager ? 'ok' : 'info');
       blackjack.reset?.();
     }
-    audio?.playButtonClick();
   });
   $('#btn-bj-stand')?.addEventListener('click', async () => {
     if (!blackjack || (blackjack.state !== 'playing' && blackjack.state !== 'dealer_turn')) return;
@@ -2314,7 +2335,6 @@ function bindEvents() {
       toast(`Blackjack: ${String(res.result || 'OVER').toUpperCase()} (${fmtSigned(payout - wager)})`, payout > wager ? 'ok' : 'info');
       blackjack.reset?.();
     }
-    audio?.playButtonClick();
   });
   $('#btn-bj-double')?.addEventListener('click', async () => {
     if (!blackjack || blackjack.state !== 'playing') return;
@@ -2331,7 +2351,6 @@ function bindEvents() {
       toast(`Blackjack Double: ${String(res.result || 'OVER').toUpperCase()} (${fmtSigned(payout - wager)})`, payout > wager ? 'ok' : 'info');
       blackjack.reset?.();
     }
-    audio?.playButtonClick();
   });
   el.riskSeg.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-risk]');
@@ -2387,7 +2406,6 @@ function bindEvents() {
   if (btnTwistCashout) {
     btnTwistCashout.addEventListener('click', () => {
       cashoutTwist();
-      audio?.playButtonClick();
     });
   }
 
@@ -2398,6 +2416,7 @@ function bindEvents() {
       const btn = e.target.closest('[data-color]');
       if (!btn) return;
       $$('[data-color]', rouletteSeg).forEach((b) => b.classList.toggle('is-active', b === btn));
+      audio?.play?.('roulette', 'click', { volume: 0.62 });
     });
   }
 
@@ -2405,10 +2424,12 @@ function bindEvents() {
   $('#btn-pdice-over')?.addEventListener('click', () => {
     $('#btn-pdice-over')?.classList.add('is-active');
     $('#btn-pdice-under')?.classList.remove('is-active');
+    audio?.play?.('pocket-dice', 'over_under', { volume: 0.72 });
   });
   $('#btn-pdice-under')?.addEventListener('click', () => {
     $('#btn-pdice-under')?.classList.add('is-active');
     $('#btn-pdice-over')?.classList.remove('is-active');
+    audio?.play?.('pocket-dice', 'over_under', { volume: 0.72 });
   });
 
   /* Dice direction buttons */
@@ -2422,17 +2443,17 @@ function bindEvents() {
   });
 
   /* Hilo buttons */
-  $('#btn-hilo-higher')?.addEventListener('click', () => { guessHilo('higher'); audio?.playButtonClick(); });
-  $('#btn-hilo-lower')?.addEventListener('click', () => { guessHilo('lower'); audio?.playButtonClick(); });
-  $('#btn-hilo-same')?.addEventListener('click', () => { guessHilo('same'); audio?.playButtonClick(); });
-  $('#btn-hilo-cashout')?.addEventListener('click', () => { cashoutHilo(); audio?.playButtonClick(); });
+  $('#btn-hilo-higher')?.addEventListener('click', () => { guessHilo('higher'); });
+  $('#btn-hilo-lower')?.addEventListener('click', () => { guessHilo('lower'); });
+  $('#btn-hilo-same')?.addEventListener('click', () => { guessHilo('same'); });
+  $('#btn-hilo-cashout')?.addEventListener('click', () => { cashoutHilo(); });
 
   /* Keno buttons */
-  $('#btn-keno-auto-pick')?.addEventListener('click', () => { keno?.autoPick?.(); audio?.playButtonClick(); });
-  $('#btn-keno-clear')?.addEventListener('click', () => { keno?.clearPicks?.(); audio?.playButtonClick(); });
+  $('#btn-keno-auto-pick')?.addEventListener('click', () => { keno?.autoPick?.(); });
+  $('#btn-keno-clear')?.addEventListener('click', () => { keno?.clearPicks?.(); });
 
   /* Mines cashout button */
-  $('#btn-mines-cashout')?.addEventListener('click', () => { cashoutMines(); audio?.playButtonClick(); });
+  $('#btn-mines-cashout')?.addEventListener('click', () => { cashoutMines(); });
 
   /* Blackjack buttons */
   $('#btn-bj-hit')?.addEventListener('click', async () => {
@@ -2444,7 +2465,6 @@ function bindEvents() {
       recordGenericRound(payout > 0 ? round2(payout / state.bet) : 0, state.bet, payout);
       toast(`Blackjack: ${res.status.toUpperCase()}`, payout > state.bet ? 'ok' : 'info');
     }
-    audio?.playButtonClick();
   });
   $('#btn-bj-stand')?.addEventListener('click', async () => {
     if (!blackjack) return;
@@ -2455,7 +2475,6 @@ function bindEvents() {
       recordGenericRound(payout > 0 ? round2(payout / state.bet) : 0, state.bet, payout);
       toast(`Blackjack: ${res.status.toUpperCase()}`, payout > state.bet ? 'ok' : 'info');
     }
-    audio?.playButtonClick();
   });
   $('#btn-bj-double')?.addEventListener('click', async () => {
     if (!blackjack) return;
@@ -2470,7 +2489,6 @@ function bindEvents() {
       recordGenericRound(payout > 0 ? round2(payout / totalWager) : 0, totalWager, payout);
       toast(`Blackjack Double: ${res.status.toUpperCase()} (${fmtSigned(payout - totalWager)})`, payout > totalWager ? 'ok' : 'info');
     }
-    audio?.playButtonClick();
   });
   $$('[data-auto-count]').forEach((b) => b.addEventListener('click', () => {
     state.autoCount = Number(b.dataset.autoCount);
@@ -2778,11 +2796,6 @@ function bindEvents() {
     }
   });
 
-  /* keep the AudioContext unlocked after the first real gesture */
-  const unlock = () => { audio?.resume?.(); };
-  window.addEventListener('pointerdown', unlock, { once: true });
-  window.addEventListener('keydown', unlock, { once: true });
-
   /* stop auto when the tab is hidden — nobody wants a silent drain */
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && auto.running) stopAuto('Auto paused \u2014 tab hidden', 'info');
@@ -2827,7 +2840,6 @@ async function init() {
   physics = new PlinkoPhysics(el.canvas, {
     rows: state.rows,
     risk: state.risk,
-    audio,
     backdrop: false,
     onBallLanded: (bucketIndex, _multiplier, ballId) => settle(ballId, bucketIndex),
   });
@@ -2904,12 +2916,12 @@ async function init() {
 
   try {
     const pocketStage = document.getElementById('pocket-dice-stage');
-    if (pocketStage) pocketDice = new DiceGame(pocketStage, { audio });
+    if (pocketStage) pocketDice = new DiceGame(pocketStage, { audio, audioGame: 'pocket-dice' });
   } catch (err) { console.warn('[pocket-dice] init failed', err); }
 
   try {
     const diceStage = document.getElementById('dice-stage');
-    if (diceStage) dice = new DiceGame(diceStage, { audio });
+    if (diceStage) dice = new DiceGame(diceStage, { audio, audioGame: 'dice' });
   } catch (err) { console.warn('[dice] init failed', err); }
 
   try {
@@ -2937,6 +2949,7 @@ async function init() {
   function selectGame(g) {
     if (!GAMES.includes(g)) return false;
     state.activeGame = g;
+    limbo?.setAudioActive?.(document.body.dataset.route === 'game' && g === 'limbo');
     $$('.game-tab').forEach((t) => t.classList.toggle('is-active', t.dataset.game === g));
     $$('.game-stage-view').forEach((view) => {
       const active = view.id === `view-${g}`;
@@ -3032,6 +3045,7 @@ async function init() {
   function showLobby() {
     if (auto?.running) stopAuto('Lobby returned');
     document.body.dataset.route = 'lobby';
+    limbo?.setAudioActive?.(false);
 
     if (location.hash !== '#/') location.hash = '#/';
 

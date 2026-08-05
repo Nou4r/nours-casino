@@ -23,6 +23,14 @@ import * as T from '../render/theme.js';
 
 const TAU = Math.PI * 2;
 const TOTAL_SEGMENTS = 36;
+const TWIST_PROGRESS_CUES = Object.freeze({
+  planet: Object.freeze(['segment_1', 'segment_2', 'segment_3', 'segment_4']),
+  moon: Object.freeze(['segment_1', 'segment_2', 'segment_3', 'segment_4', 'segment_5', 'segment_6']),
+  sun: Object.freeze([
+    'orange_segment_1', 'orange_segment_2', 'orange_segment_3', 'orange_segment_4',
+    'orange_segment_5', 'orange_segment_6', 'orange_segment_7', 'orange_segment_8',
+  ]),
+});
 const SHAKE_MS = 500;
 const OVERLAY_DUR = 2.6;      // seconds a bust / cashout readout stays up
 const SEG_GAP_PX = 9;         // segment gap at the reference stage; scaled per stage
@@ -80,6 +88,12 @@ function segArc(count, gap) {
 function easeOutCubic(t) {
   const u = 1 - t;
   return 1 - u * u * u;
+}
+function twistProgressCue(ringKey, spinCount, totalSegments) {
+  const cues = TWIST_PROGRESS_CUES[ringKey] || TWIST_PROGRESS_CUES.planet;
+  const slotsPerCue = Math.max(1, Math.ceil(totalSegments / cues.length));
+  const idx = Math.min(cues.length - 1, Math.floor(Math.max(0, spinCount - 1) / slotsPerCue));
+  return cues[idx];
 }
 
 /**
@@ -324,6 +338,7 @@ export class TwistGame {
    * @returns {Promise<object>} Outcome object
    */
   async spin(serverSeed, clientSeed, nonce) {
+    this.audio?.play?.('twist', 'symbols_spin_start');
     const sSeed = serverSeed || randomSeed(32);
     const cSeed = clientSeed || 'client-seed';
     const n = nonce !== undefined ? Number(nonce) : Math.floor(Math.random() * 1000000);
@@ -350,13 +365,10 @@ export class TwistGame {
 
     this.spawnBustParticles();
 
-    if (this.audio) {
-      if (typeof this.audio.playBucketHit === 'function') {
-        this.audio.playBucketHit(0);
-      } else if (typeof this.audio.playPegHit === 'function') {
-        this.audio.playPegHit(0);
-      }
-    }
+    this.audio?.play?.('twist', 'symbols_spin_tick');
+    this.audio?.play?.('twist', 'symbols_spin_end');
+    this.audio?.play?.('twist', 'scull_stop');
+    this.audio?.play?.('twist', 'lose');
 
     const previousMultiplier = this.multiplier;
     const previousLit = this.totalLitCount;
@@ -425,11 +437,19 @@ export class TwistGame {
 
     this.multiplier = this.calculateMultiplier(this.totalLitCount);
 
-    if (this.audio && typeof this.audio.playPegHit === 'function') {
-      this.audio.playPegHit(this.totalLitCount / TOTAL_SEGMENTS);
-    }
+    this.audio?.play?.('twist', 'symbols_spin_tick');
+    this.audio?.play?.('twist', 'symbols_spin_end');
 
     if (hitSegment) {
+      const ringSegments = this.segments[hitSegment.ring];
+      const ringLit = ringSegments.reduce(countLit, 0);
+      this.audio?.play?.(
+        'twist',
+        twistProgressCue(hitSegment.ring, ringLit, ringSegments.length)
+      );
+      if (ringLit === ringSegments.length) {
+        this.audio?.play?.('twist', 'star_stop');
+      }
       this.segFlash[hitSegment.ring][hitSegment.index] = 1;
       this.spawnSegmentLitParticles(hitSegment.ring, hitSegment.index);
     }
@@ -465,6 +485,7 @@ export class TwistGame {
       };
     }
 
+    this.audio?.play?.('twist', 'cashout_click');
     const currentMultiplier = this.multiplier;
     const payout = Number((this.betAmount * currentMultiplier).toFixed(2));
     const litCount = this.totalLitCount;
@@ -472,9 +493,7 @@ export class TwistGame {
     this.inGame = false;
     this.statusText = `CASHED OUT AT ${currentMultiplier.toFixed(2)}x`;
 
-    if (this.audio && typeof this.audio.playBucketHit === 'function') {
-      this.audio.playBucketHit(currentMultiplier);
-    }
+    this.audio?.play?.('twist', 'cashout_latest');
 
     this.spawnCashoutParticles();
 
@@ -500,6 +519,10 @@ export class TwistGame {
    * @returns {object}
    */
   reset() {
+    const resetRegular = this.segments.planet.some(Boolean) || this.segments.moon.some(Boolean);
+    const resetSun = this.segments.sun.some(Boolean);
+    if (resetRegular) this.audio?.play?.('twist', 'segment_unfill');
+    if (resetSun) this.audio?.play?.('twist', 'orange_segment_unfill');
     this.segments.planet.fill(false);
     this.segments.moon.fill(false);
     this.segments.sun.fill(false);

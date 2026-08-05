@@ -16,6 +16,7 @@
 !/styles.css
 !/css
 !/js
+!/assets
 
 # `fonts/` is published even though the WEB build does not currently use it:
 # index.html loads Inter + Roboto Mono from the Google Fonts CDN, and only the

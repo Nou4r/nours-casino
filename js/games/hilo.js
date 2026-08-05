@@ -506,7 +506,7 @@ export class HiloGame {
 
     // Card flip visual animation & audio
     this.triggerCardFlip(firstCard);
-    this.playAudio('card');
+    this.audio?.play?.('hilo', 'draw', { volume: this.reducedMotion ? 0.72 : 0.82 });
 
     this.triggerStateChange('in_game');
     if (typeof this.onCardDrawn === 'function') {
@@ -559,7 +559,7 @@ export class HiloGame {
       });
 
       this.triggerCardFlip(nextCard);
-      this.playAudio('card');
+      this.audio?.play?.('hilo', 'draw', { volume: this.reducedMotion ? 0.72 : 0.82 });
 
       const result = {
         win: true,
@@ -630,6 +630,7 @@ export class HiloGame {
     }
 
     this.triggerCardFlip(nextCard);
+    this.audio?.play?.('hilo', 'draw', { volume: this.reducedMotion ? 0.72 : 0.82 });
 
     if (isWin) {
       // Progressive multiplier compound
@@ -645,7 +646,7 @@ export class HiloGame {
         multiplier: this.currentMultiplier,
       });
 
-      this.playAudio('win', stepMult);
+      this.audio?.play?.('hilo', 'multiplier', { volume: 0.78 });
       this.pulse(T.PALETTE.mint);
       this.addWinParticles();
       this.addFloater(`+${stepMult.toFixed(2)}x`);
@@ -693,7 +694,6 @@ export class HiloGame {
       this.history.unshift(outcome);
       if (this.history.length > 50) this.history.pop();
 
-      this.playAudio('bust');
       this.shakeTime = SHAKE_MS;
       this.bustFlash = 1.0;
       this.pulse(T.PALETTE.red);
@@ -743,7 +743,7 @@ export class HiloGame {
     this.history.unshift(outcome);
     if (this.history.length > 50) this.history.pop();
 
-    this.playAudio('cashout');
+    this.audio?.play?.('hilo', 'win', { volume: 0.88 });
     this.pulse(T.PALETTE.gold);
     this.addCashoutParticles();
     this.addFloater(`CASHED OUT $${payout.toFixed(2)}`, T.PALETTE.gold);
@@ -827,92 +827,6 @@ export class HiloGame {
     }
   }
 
-  /**
-   * Play audio synth effects.
-   * @param {string} type
-   * @param {number} [param]
-   */
-  playAudio(type, param = 1.0) {
-    if (this.audio && typeof this.audio.play === 'function') {
-      try {
-        this.audio.play(type, param);
-        return;
-      } catch (e) {
-        // Fallback to internal Web Audio synth below
-      }
-    }
-
-    if (typeof window === 'undefined') return;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-
-    if (!HiloGame.audioCtx) {
-      HiloGame.audioCtx = new AudioCtx();
-    }
-    const ctx = HiloGame.audioCtx;
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-
-    const now = ctx.currentTime;
-
-    if (type === 'card') {
-      // Swish/flip sound
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(400, now);
-      osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.08);
-    } else if (type === 'win') {
-      // Bright win ding
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const freq = Math.min(1200, 523.25 * Math.pow(1.05, Math.min(20, param)));
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.exponentialRampToValueAtTime(freq * 1.5, now + 0.15);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.2);
-    } else if (type === 'bust') {
-      // Low thud/bust
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(160, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.25);
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.25);
-    } else if (type === 'cashout') {
-      // Major chord fanfare
-      [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const startTime = now + idx * 0.06;
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, startTime);
-        gain.gain.setValueAtTime(0.15, startTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(startTime);
-        osc.stop(startTime + 0.3);
-      });
-    }
-  }
 
   /* --------------------------- Animation triggers ------------------------- */
 

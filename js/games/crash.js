@@ -58,6 +58,7 @@ export class CrashGame {
    * @param {object} [options] Configuration options.
    * @param {number} [options.betAmount=10] Bet amount.
    * @param {number} [options.autoCashout=0] Auto cashout multiplier (0 = disabled).
+   * @param {object} [options.audio] Shared casino audio manager.
    * @param {function} [options.onStateChange] Callback for state changes ('idle'|'running'|'cashed_out'|'crashed').
    * @param {function} [options.onCashout] Callback when cashed out (payout, mult).
    * @param {function} [options.onCrash] Callback when crashed (crashMult).
@@ -73,6 +74,7 @@ export class CrashGame {
     // Game Settings & State
     this.betAmount = options.betAmount ?? 10;
     this.autoCashout = options.autoCashout ?? 0;
+    this.audio = options.audio || null;
 
     // Callbacks
     this.onStateChange = options.onStateChange || null;
@@ -521,6 +523,7 @@ export class CrashGame {
     }
 
     this.setState('running');
+    this.audio?.play?.('crash', 'start');
     this.loop();
   }
 
@@ -534,6 +537,7 @@ export class CrashGame {
     this.cashedOutMult = Number(this.currentMult.toFixed(2));
     this.payout = Math.floor(this.betAmount * this.cashedOutMult * 100) / 100;
     this.setState('cashed_out');
+    this.audio?.play?.('crash', 'cashout');
 
     if (typeof this.onCashout === 'function') {
       this.onCashout(this.payout, this.cashedOutMult);
@@ -630,6 +634,7 @@ export class CrashGame {
     // State update & callback if player did not cash out
     if (this.state !== 'cashed_out') {
       this.setState('crashed');
+      this.audio?.play?.('crash', 'end');
     }
 
     if (typeof this.onCrash === 'function') {

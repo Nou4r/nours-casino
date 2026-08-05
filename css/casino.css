@@ -1,9 +1,9 @@
-/* ======================== Gamdom Aesthetics ======================== */
+/* ======================== Casino Aesthetics ======================== */
 :root {
-  --gamdom-mint: #00ff86;
-  --gamdom-dark: #131a22;
-  --gamdom-surface: #0f151b;
-  --gamdom-text-dim: #45515c;
+  --casino-mint: #00ff86;
+  --casino-dark: #131a22;
+  --casino-surface: #0f151b;
+  --casino-text-dim: #45515c;
 }
 
 .btn--drop {
@@ -21,10 +21,10 @@
   box-shadow: 0 6px 26px -2px rgba(0, 255, 134, 0.85) !important;
 }
 
-/* Gamdom Live Players Table */
+/* Casino Live Players Table */
 .live-players-section {
   margin-top: 16px;
-  background: var(--gamdom-surface);
+  background: var(--casino-surface);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   padding: 14px 16px;
@@ -50,7 +50,7 @@
 .live-players-count {
   font-size: 11px;
   font-weight: 700;
-  color: var(--gamdom-mint);
+  color: var(--casino-mint);
 }
 .live-players-table {
   width: 100%;
@@ -64,7 +64,7 @@
   font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: var(--gamdom-text-dim);
+  color: var(--casino-text-dim);
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 .live-players-table td {
@@ -90,11 +90,11 @@
   font-size: 11px;
   font-weight: 700;
   background: rgba(16, 185, 129, 0.15);
-  color: var(--gamdom-mint);
+  color: var(--casino-mint);
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 .txt-mint {
-  color: var(--gamdom-mint) !important;
+  color: var(--casino-mint) !important;
   font-family: 'Roboto Mono', monospace;
   font-weight: 700;
 }
@@ -304,7 +304,7 @@
    index.html; AppWiring only fills the containers and flips the attributes. */
 
 #btn-cheat.is-active {
-  color: var(--gamdom-mint);
+  color: var(--casino-mint);
   border-color: rgba(0, 255, 134, .42);
   background: rgba(0, 255, 134, .12);
   box-shadow: 0 0 0 1px rgba(0, 255, 134, .16), 0 4px 16px -6px rgba(0, 255, 134, .75);
@@ -375,7 +375,7 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
   font-weight: 800;
   letter-spacing: .1em;
   white-space: nowrap;
-  color: var(--gamdom-mint);
+  color: var(--casino-mint);
 }
 /* AppWiring adds .is-live while a round is actually in flight (fact, not guess). */
 .cheat-panel__badge.is-live {
@@ -432,7 +432,7 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.cheat-row__v.is-mint { color: var(--gamdom-mint); }
+.cheat-row__v.is-mint { color: var(--casino-mint); }
 .cheat-row__v.is-red  { color: var(--red); }
 .cheat-row__v.is-gold { color: var(--gold); }
 .cheat-row__v.is-dim  { color: var(--text-dim); }
@@ -650,7 +650,7 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
 }
 #custom-rtp-out:empty { display: none; }
 #custom-rtp-out span { color: var(--text-dim); }
-#custom-rtp-out b { font-weight: 700; color: var(--gamdom-mint); }
+#custom-rtp-out b { font-weight: 700; color: var(--casino-mint); }
 /* Player-advantage figures read as a warning, not a win. */
 #custom-rtp-out b.is-gold { color: var(--gold); }
 #custom-rtp-out b.is-red  { color: var(--red); }
@@ -767,10 +767,10 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
 .acct-row.is-active {
   border-color: rgba(0, 255, 134, .34);
   background: rgba(0, 255, 134, .07);
-  box-shadow: inset 3px 0 0 var(--gamdom-mint);
+  box-shadow: inset 3px 0 0 var(--casino-mint);
 }
 .acct-row.is-active:hover { background: rgba(0, 255, 134, .11); }
-.acct-row.is-active .acct-row__name { color: var(--gamdom-mint); }
+.acct-row.is-active .acct-row__name { color: var(--casino-mint); }
 
 .acct-row__dot {
   width: 20px;
@@ -837,7 +837,7 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
   color: var(--text-dim);
   transition: background .16s, border-color .16s, color .16s, transform .12s;
 }
-.acct-row__go:hover  { color: var(--gamdom-mint); background: rgba(0, 255, 134, .14); border-color: rgba(0, 255, 134, .4); }
+.acct-row__go:hover  { color: var(--casino-mint); background: rgba(0, 255, 134, .14); border-color: rgba(0, 255, 134, .4); }
 .acct-row__del:hover { color: var(--red-hi);      background: rgba(239, 68, 68, .14); border-color: rgba(239, 68, 68, .42); }
 .acct-row__go:active,
 .acct-row__del:active { transform: scale(.94); }
@@ -932,5 +932,5 @@ body[data-cheat="on"][data-route="game"] .cheat-panel {
   color: var(--text-dim);
 }
 #account-msg:empty { display: none; }
-#account-msg.is-ok  { border-color: rgba(0, 255, 134, .32); background: rgba(0, 255, 134, .09); color: var(--gamdom-mint); }
+#account-msg.is-ok  { border-color: rgba(0, 255, 134, .32); background: rgba(0, 255, 134, .09); color: var(--casino-mint); }
 #account-msg.is-err { border-color: rgba(239, 68, 68, .34); background: rgba(239, 68, 68, .1);  color: var(--red-hi); }

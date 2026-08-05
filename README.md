@@ -6,7 +6,7 @@ A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, 
 Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
 has no bundler, no framework, no runtime dependency, and no CDN-hosted JavaScript or CSS.
 Every stage is drawn procedurally with no image or sprite files. Game events use the bundled
-Gamdom sound set through a same-origin `HTMLAudioElement` pool. The one external request the
+game sound library through a same-origin `HTMLAudioElement` pool. The one external request the
 **web** build makes is the Google Fonts stylesheet for Inter + Roboto Mono; remove those three
 `<link>` tags in `index.html` and it falls back to the system stack. The **packaged native app**
 never makes that request: `scripts/build-www.mjs` strips the CDN tags when it generates `www/`
@@ -60,9 +60,9 @@ HMAC-derived randomness, a soft-body-ish physics sim, eleven bespoke canvas rend
 one design language, an asset-backed audio pool with game-specific cue timing, and a money path
 that must never lose a cent no matter how the UI is abused.
 
-The visual language is modelled on [Gamdom's](https://gamdom.com) Originals, but every line of
-code, every payout table and every piece of art here is original and self-contained. No
-third-party resource is fetched at runtime beyond the two web fonts.
+The visual language is an original casino interface, and every line of code, every payout table
+and every piece of art here is original and self-contained. No third-party resource is fetched
+at runtime beyond the two web fonts.
 
 ---
 
@@ -116,7 +116,7 @@ was built at, so the default is byte-identical to untouched behaviour.
 loop waits instead of double-betting; it stops automatically when the balance can't cover the
 next bet.
 
-**Asset-backed audio.** `js/audio.js` lazily pools the 77 bundled Gamdom MP3/WAV cues, limits
+**Asset-backed audio.** `js/audio.js` lazily pools the 77 bundled game MP3/WAV cues, limits
 overlapping voices, and keeps mute, volume, loop, visibility, and browser-unlock state shared.
 
 **Hotkeys** (game route only, so a focused lobby card can never place a bet):
@@ -252,7 +252,7 @@ be driven from the console.
 ```
 index.html              Markup: topbar, lobby + 11 inline SVG card scenes, control panes, stages, modals
 styles.css              Base theme, layout grid, components, responsive
-css/gamdom.css          Colour tokens, live-bets skin, chrome polish, cheat panel   (loaded 2nd)
+css/casino.css          Colour tokens, live-bets skin, chrome polish, cheat panel   (loaded 2nd)
 css/lobby.css           Lobby design system: routes, hero, grid, card-art keyframes (loaded last)
 css/fonts.css           @font-face for the four vendored faces — linked in the packaged build only
 fonts/                  Inter + Roboto Mono variable .woff2, latin + latin-ext (native app only)
@@ -263,7 +263,7 @@ js/accounts.js          Named profiles in localStorage + export/import codes
 js/cheats.js            Outcome peek for all 11 games (pure — never mutates anything)
 js/physics.js           Plinko board: peg pyramid, ball sim, bucket VFX
 js/audio.js             Asset-backed HTMLAudio pool, cue aliases, mute/volume persistence
-assets/gamdom/          77 bundled game sound cues (76 MP3, 1 WAV)
+assets/audio/           77 bundled game sound cues (76 MP3, 1 WAV)
 js/native.js            Capacitor bridge — status bar, splash, back button, haptics; inert in a browser
 js/render/theme.js      Shared canvas primitives: palette, paintStage, peg/chip/tile/card/…
 js/math/provably-fair.js  HMAC-SHA256 outcomes, seed pair, verifier, SHA-256 fallback
@@ -573,8 +573,8 @@ Play money. No real currency, no accounts, no payments, no backend, no analytics
 Everything lives in your browser's `localStorage`, and the only request the app makes is for the
 Google Fonts stylesheet (removable — see the top of this README).
 
-Not affiliated with, endorsed by, or derived from the code of Gamdom or any other operator. The
-visual language is an homage; the implementation is original.
+Not affiliated with or endorsed by any casino operator. The visual language and implementation
+are original.
 
 If real gambling is a problem for you or someone you know, help is available —
 [BeGambleAware](https://www.begambleaware.org/) · [Gamblers Anonymous](https://www.gamblersanonymous.org/).

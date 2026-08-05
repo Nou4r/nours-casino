@@ -504,7 +504,7 @@ export class CrashGame {
     this.comets = [];
     this._cometTimer = 0;
 
-    // Spawn deterministic live cashout markers for visual interest (Gamdom look)
+    // Spawn deterministic live cashout markers for visual interest (casino look)
     if (this.crashPoint >= 1.35) {
       const marks = Math.min(3, Math.max(1, Math.floor(this.crashPoint / 1.6)));
       for (let i = 1; i <= marks; i++) {
@@ -753,7 +753,7 @@ export class CrashGame {
   }
 
   /**
-   * Curved rocket path point at time t. Gamdom-style: starts shallow, steepens with
+   * Curved rocket path point at time t. Crash style: starts shallow, steepens with
    * multiplier. Returns canvas coords for (t, mult) plus the live plot box.
    */
   getRocketCoords(t, mult) {
@@ -901,7 +901,7 @@ export class CrashGame {
   }
 
   /**
-   * Draw glowing orb head at curve tip, matching Gamdom's white-core orb.
+   * Draw glowing orb head at curve tip, matching the reference style's white-core orb.
    * @param {number} x
    * @param {number} y
    */
@@ -985,7 +985,7 @@ export class CrashGame {
       ctx.arc(mx, my, markR * 0.37, 0, Math.PI * 2);
       ctx.fill();
 
-      // Label block (mult + payout), Gamdom style. Mono advance ~0.62em / Inter ~0.60em,
+      // Label block (mult + payout), crash style. Mono advance ~0.62em / Inter ~0.60em,
       // so the block width is predictable without a measureText per marker per frame.
       const multTxt = `x${m.mult.toFixed(2)}`;
       const payTxt = `$${m.payout.toFixed(2)}`;

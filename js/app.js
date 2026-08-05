@@ -129,7 +129,7 @@ function multTone(m) {
   return 'red';
 }
 
-/** Gamdom crash reel banding: >= 2.00 green, else red. */
+/** Crash reel banding: >= 2.00 green, else red. */
 function multToneCrash(m) {
   return m >= 2 ? 'green' : 'red';
 }

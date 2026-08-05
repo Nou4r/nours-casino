@@ -1,6 +1,6 @@
 /* =========================================================================
    Nour's Casino — Lobby
-   Loads after styles.css and css/gamdom.css, so it inherits their tokens
+   Loads after styles.css and css/casino.css, so it inherits their tokens
    (--mint --ink --rail --green --text --bg --bg-deep --gold --ease --spring)
    and wins plain-selector ties on source order alone. Nothing in this file
    is forced with an importance flag.

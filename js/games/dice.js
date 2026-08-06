@@ -974,7 +974,7 @@ export class DiceGame {
 
     ctx.save();
     T.roundRect(ctx, pad, ty, tw, th, r);
-    ctx.fillStyle = '#080d15';
+    ctx.fillStyle = T.PALETTE.rail;
     ctx.fill();
     ctx.clip();
 
@@ -1011,7 +1011,7 @@ export class DiceGame {
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.8)';
     ctx.shadowBlur = Math.max(3, th * 0.27);
-    ctx.fillStyle = 'rgba(8,13,21,0.9)';
+    ctx.fillStyle = T.alpha(T.PALETTE.rail, 0.9);
     ctx.fillRect(tx - dw / 2, ty, dw, th);
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.fillRect(tx - 0.5, ty, Math.max(1, th * 0.045), th);
@@ -1175,7 +1175,7 @@ export class DiceGame {
     ctx.arc(0, 0, kr, 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.fillStyle = '#0b111a';
+    ctx.fillStyle = T.PALETTE.inset;
     ctx.beginPath();
     ctx.arc(0, 0, kr * 0.35, 0, Math.PI * 2);
     ctx.fill();
@@ -1194,7 +1194,7 @@ export class DiceGame {
 
     // Tail from bubble down toward the knob
     ctx.save();
-    ctx.fillStyle = 'rgba(17, 24, 33, 0.88)';
+    ctx.fillStyle = T.alpha(T.PALETTE.floating, 0.88);
     ctx.strokeStyle = T.alpha(gold, 0.35);
     ctx.lineWidth = 1;
     ctx.beginPath();

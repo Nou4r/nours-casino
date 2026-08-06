@@ -19,6 +19,7 @@ import { BlackjackGame } from './games/blackjack.js';
 import { peekCheat, peekSignature } from './cheats.js';
 import * as Accounts from './accounts.js';
 import { initNative, haptic } from './native.js';
+import { initThemeControls } from './theme.js';
 
 /* ------------------------------ Constants ------------------------------ */
 
@@ -46,7 +47,13 @@ const round2  = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const sum     = (arr) => arr.reduce((a, b) => a + b, 0);
 
 const MONEY = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const INT   = new Intl.NumberFormat('en-US');
+const COMPACT_MONEY = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+const INT = new Intl.NumberFormat('en-US');
 
 const fmtMoney  = (n) => MONEY.format(Number.isFinite(n) ? n : 0);
 const fmtSigned = (n) => (n >= 0 ? '+' : '-') + fmtMoney(Math.abs(n));
@@ -129,7 +136,7 @@ function multTone(m) {
   return 'red';
 }
 
-/** Crash reel banding: >= 2.00 green, else red. */
+/** Gamdom crash reel banding: >= 2.00 green, else red. */
 function multToneCrash(m) {
   return m >= 2 ? 'green' : 'red';
 }
@@ -210,26 +217,65 @@ const auto = { running: false, total: 0, done: 0, timer: null };
    Crash cash-out) remain available as soon as the operation is ready. */
 const actionLocks = new Set();
 
-function renderActionControls(game) {
-  if (game !== 'hilo') return;
-  const pending = actionLocks.has(game);
-  for (const id of ['btn-hilo-higher', 'btn-hilo-lower', 'btn-hilo-same', 'btn-hilo-cashout']) {
+function setActionControlsDisabled(ids, disabled) {
+  for (const id of ids) {
     const control = document.getElementById(id);
-    if (control) control.disabled = pending;
+    if (control) control.disabled = disabled;
   }
+}
+
+/** Keep mid-round controls honest: an idle game must not present a bright but
+ *  inert decision dock, and a pending operation must not accept another tap. */
+function renderActionControls() {
+  setActionControlsDisabled(
+    ['btn-twist-cashout'],
+    !state.twistInRound || actionLocks.has('twist'),
+  );
+
+  setActionControlsDisabled(
+    ['btn-hilo-higher', 'btn-hilo-lower', 'btn-hilo-same', 'btn-hilo-cashout'],
+    !state.hiloInRound || actionLocks.has('hilo'),
+  );
+
+  setActionControlsDisabled(
+    ['btn-mines-cashout'],
+    !state.minesInRound
+      || (mines?.revealedGems || 0) < 1
+      || actionLocks.has('mines'),
+  );
+
+  const kenoPlaying = keno?.state === 'playing' || actionLocks.has('keno');
+  const kenoPickCount = keno?.pickedTiles?.size || 0;
+  const kenoPickHint = document.getElementById('keno-picks-count');
+  if (kenoPickHint) kenoPickHint.textContent = `${kenoPickCount} of ${keno?.maxPicks || 10}`;
+  setActionControlsDisabled(['btn-keno-auto-pick'], kenoPlaying);
+  setActionControlsDisabled(['btn-keno-clear'], kenoPlaying || kenoPickCount === 0);
+
+  const blackjackPlaying = blackjack?.state === 'playing';
+  setActionControlsDisabled(
+    ['btn-bj-hit', 'btn-bj-stand'],
+    !blackjackPlaying || actionLocks.has('blackjack'),
+  );
+  setActionControlsDisabled(
+    ['btn-bj-double'],
+    !blackjackPlaying
+      || blackjack?.playerHand?.length !== 2
+      || state.balance + 1e-9 < state.bet
+      || actionLocks.has('blackjack'),
+  );
 }
 
 function beginAction(game) {
   if (actionLocks.has(game)) return false;
   actionLocks.add(game);
-  renderActionControls(game);
+  renderActionControls();
   renderDropButton();
   return true;
 }
 
 function endAction(game) {
   actionLocks.delete(game);
-  renderActionControls(game);
+  renderActionControls();
   renderDropButton();
 }
 
@@ -452,6 +498,9 @@ function renderAll() {
 /* --------------------------------- DOM --------------------------------- */
 
 const el = {};
+let closeToolsSheet = () => {};
+let closeBetControlsSheet = () => {};
+let closeTransientOverlay = () => false;
 
 function cacheDom() {
   Object.assign(el, {
@@ -483,6 +532,14 @@ function cacheDom() {
     btnDrop:      $('#btn-drop'),
     dropLabel:    $('#drop-label'),
     dropSub:      $('#drop-sub'),
+    btnBetSettings: $('#btn-bet-settings'),
+    btnCloseBetControls: $('#btn-close-bet-controls'),
+    betControls:  $('#bet-controls'),
+    betControlsContent: $('#bet-controls-content'),
+    betControlsScrim: $('#bet-controls-scrim'),
+    betSheetTitle: $('#bet-sheet-title'),
+    phoneBetAmount: $('#phone-bet-amount'),
+    phoneBetDetail: $('#phone-bet-detail'),
 
     historyList:  $('#history-list'),
     historyEmpty: $('#history-empty'),
@@ -547,7 +604,13 @@ function toast(message, kind = 'ok', hold = 2600) {
 /* ------------------------------ Rendering ------------------------------ */
 
 function renderBalance(direction = 0) {
-  el.balance.textContent = fmtMoney(state.balance);
+  const fullBalance = fmtMoney(state.balance);
+  const compactBalance = Math.abs(state.balance) >= 1_000_000
+    ? COMPACT_MONEY.format(state.balance)
+    : fullBalance;
+  el.balance.textContent = compactBalance;
+  el.balance.title = `Full balance: ${fullBalance}`;
+  el.balance.setAttribute('aria-label', `Balance ${fullBalance}`);
   if (!direction) return;
   const cls = direction > 0 ? 'is-up' : 'is-down';
   el.balance.classList.remove('is-up', 'is-down');
@@ -563,6 +626,7 @@ function renderBet() {
   el.betInput.classList.toggle('is-error', overdrawn);
   renderPreview();
   renderDropButton();
+  renderPhoneBetSummary();
 }
 
 function renderRisk() {
@@ -596,6 +660,7 @@ function renderMode() {
   el.autoPane.hidden = state.mode !== 'auto';
   renderAutoProgress();
   renderDropButton();
+  renderPhoneBetSummary();
 }
 
 function renderAutoSpeed() {
@@ -618,6 +683,76 @@ function renderPreview() {
   const win = state.maxWin > 0 ? Math.min(state.bet * max, state.maxWin) : state.bet * max;
   el.previewMult.textContent = fmtMult(max);
   el.previewWin.textContent = fmtMoney(win);
+}
+
+/** Keep the compact play bar useful without duplicating any form state. */
+function renderPhoneBetSummary() {
+  if (!el.phoneBetAmount || !el.phoneBetDetail) return;
+
+  const game = state.activeGame || 'plinko';
+  const label = gameLabel(game);
+  const value = (selector, fallback = '') => {
+    const node = $(selector);
+    const raw = node && 'value' in node ? String(node.value).trim() : '';
+    return raw || fallback;
+  };
+  const selectedText = (selector, fallback = '') => {
+    const node = $(selector);
+    return node?.textContent?.trim().replace(/\s+/g, ' ') || fallback;
+  };
+
+  let setting = '';
+  switch (game) {
+    case 'plinko':
+      setting = `${state.risk.charAt(0).toUpperCase() + state.risk.slice(1)} · ${state.rows} rows`;
+      break;
+    case 'crash':
+      setting = `Auto ${value('#crash-auto-cashout', '2.00')}×`;
+      break;
+    case 'twist':
+      setting = 'Three-ring orbit';
+      break;
+    case 'limbo':
+      setting = `Target ${value('#limbo-target', '2.00')}×`;
+      break;
+    case 'roulette':
+      setting = selectedText('#roulette-color-seg .segmented__btn.is-active', 'Red 2×');
+      break;
+    case 'pocket-dice': {
+      const direction = selectedText('#pane-ctrl-pocket-dice .segmented__btn.is-active', 'Roll Over').replace(/[<>]/g, '').trim();
+      setting = `${direction} ${value('#pocket-dice-target', '50.00')}`;
+      break;
+    }
+    case 'dice': {
+      const direction = selectedText('#pane-ctrl-dice .segmented__btn.is-active', 'Roll Over').replace(/[<>]/g, '').trim();
+      setting = `${direction} ${value('#dice-target', '50.00')}`;
+      break;
+    }
+    case 'hilo':
+      setting = state.hiloInRound ? 'Round in progress' : 'Higher, lower or same';
+      break;
+    case 'keno':
+      setting = selectedText('#keno-picks-count', '0 of 10 selected');
+      break;
+    case 'mines': {
+      const select = $('#mines-count-select');
+      setting = select?.selectedOptions?.[0]?.textContent?.trim() || '3 Mines';
+      break;
+    }
+    case 'blackjack':
+      setting = 'Classic 21';
+      break;
+    default:
+      setting = 'Wager settings';
+  }
+
+  el.phoneBetAmount.textContent = fmtMoney(state.bet);
+  el.phoneBetDetail.textContent = setting;
+  el.btnBetSettings?.setAttribute(
+    'aria-label',
+    `Open ${label} wager settings. Bet ${fmtMoney(state.bet)}. ${setting}.`,
+  );
+  if (el.betSheetTitle) el.betSheetTitle.textContent = `${label} controls`;
 }
 
 /* One definition of the primary button's label. renderDropButton() used to
@@ -658,6 +793,7 @@ function primaryLabel() {
 }
 
 function renderDropButton() {
+  renderActionControls();
   const overdrawn = state.bet > state.balance + 1e-9;
   const game = state.activeGame || 'plinko';
   const actionPending = state.mode === 'manual' && actionLocks.has(game);
@@ -817,7 +953,9 @@ function applyLobbyFilter() {
 
   const emptyEl = document.getElementById('lobby-empty');
   if (emptyEl) {
-    emptyEl.classList.toggle('is-visible', visibleCount === 0);
+    const isEmpty = visibleCount === 0;
+    emptyEl.hidden = !isEmpty;
+    emptyEl.classList.toggle('is-visible', isEmpty);
   }
 }
 
@@ -1177,10 +1315,8 @@ async function autoTick() {
         const rev = mines.quickPick ? mines.quickPick() : mines.revealTile?.(Math.floor(Math.random() * 25));
         if (!rev) {
           result = 'busy';
-        } else if (mines.state === 'lost' || rev.isMine) {
-          state.minesInRound = false;
-          recordGenericRound(0, state.minesWager || state.bet, 0);
-          toast('Mines loss!', 'error');
+        } else if (mines.state === 'lost' || rev.isMine || mines.state === 'won') {
+          // handleMinesState() has already settled the completed round.
           result = 'ok';
         } else {
           cashoutMines();
@@ -1414,6 +1550,7 @@ async function guessHilo(dir) {
 function cashoutHilo() {
   if (!hilo || !state.hiloInRound || actionLocks.has('hilo')) return;
   state.hiloInRound = false;
+  renderActionControls();
   const wager = state.hiloWager || state.bet;
   if (hilo.inGame === false) {
     recordGenericRound(0, wager, 0);
@@ -1482,6 +1619,7 @@ async function playMines() {
     state.balance = round2(state.balance - bet);
     renderBalance(-1);
     state.minesInRound = true;
+    renderActionControls();
     state.minesWager = bet;
     const mCount = parseInt($('#mines-count-select')?.value, 10) || 3;
     mines.setBet?.(bet);
@@ -1494,6 +1632,7 @@ async function playMines() {
     } catch (err) {
       console.error('[mines] start failed', err);
       state.minesInRound = false;
+      renderActionControls();
       state.balance = round2(state.balance + bet);
       renderBalance(1);
       toast(`Mines error: ${err?.message ?? err}`, 'warn');
@@ -1503,31 +1642,54 @@ async function playMines() {
   toast('Click tiles to reveal gems or click Cash Out', 'info');
 }
 
-function cashoutMines() {
-  if (!mines || !state.minesInRound) return;
-  state.minesInRound = false;
-  const wager = state.minesWager || state.bet;
-  if (mines.state === 'lost') {
-    recordGenericRound(0, wager, 0);
-    toast('Mines Loss! Tile hit mine', 'error');
+function handleMinesState(nextState) {
+  const roundWasOpen = Boolean(state.minesInRound);
+
+  if (nextState === 'playing') {
+    state.minesInRound = true;
+    renderActionControls();
     return;
   }
-  try {
-    const res = mines.cashout();
-    if (!res || res.payout === undefined) return;
-    const payout = effectivePayout(res.payout || 0);
+
+  state.minesInRound = false;
+  renderActionControls();
+  if (!roundWasOpen) return;
+
+  const wager = state.minesWager || state.bet;
+  if (nextState === 'lost') {
+    recordGenericRound(0, wager, 0);
+    toast('Mines loss — a mine was revealed', 'error');
+    return;
+  }
+
+  if (nextState === 'won') {
+    const payout = effectivePayout(mines?.payout || 0);
     const mult = wager > 0 ? round2(payout / wager) : 0;
     state.balance = round2(state.balance + payout);
     renderBalance(1);
     recordGenericRound(mult, wager, payout);
-    toast(`Cashed out Mines at ${fmtMult(mult)} (${fmtSigned(payout - wager)})`, 'ok');
+    const cleared = mines?.revealedGems >= (25 - (mines?.minesCount || 0));
+    toast(
+      cleared
+        ? `Mines cleared at ${fmtMult(mult)} (${fmtSigned(payout - wager)})`
+        : `Cashed out Mines at ${fmtMult(mult)} (${fmtSigned(payout - wager)})`,
+      'ok',
+    );
+  }
+}
+
+function cashoutMines() {
+  if (!mines || !state.minesInRound) return;
+  try {
+    const res = mines.cashout();
+    if (!res) toast('Reveal at least one gem before cashing out', 'info');
   } catch (err) {
     console.error('[mines] cashout failed', err);
   }
 }
 
 async function playBlackjack() {
-  if (!blackjack) return;
+  if (!blackjack || actionLocks.has('blackjack')) return;
   if (blackjack.state === 'playing' || blackjack.state === 'dealer_turn') {
     toast('Hand in progress — click Hit, Stand, or Double', 'info');
     return;
@@ -1536,6 +1698,8 @@ async function playBlackjack() {
 
   const bet = state.bet;
   if (state.balance < bet) { toast('Insufficient balance', 'error'); return; }
+  if (!beginAction('blackjack')) return;
+
   state.balance = round2(state.balance - bet);
   renderBalance(-1);
   const nonce = ++state.nonce;
@@ -1559,6 +1723,8 @@ async function playBlackjack() {
     state.balance = round2(state.balance + bet);
     renderBalance(1);
     toast(`Blackjack error: ${err?.message ?? err}`, 'warn');
+  } finally {
+    endAction('blackjack');
   }
 }
 function updateLiveBetsTable(username, mult, payout) {
@@ -1674,6 +1840,7 @@ function cashoutTwist() {
   if (!twist || !state.twistInRound || actionLocks.has('twist')) return;
   const res = twist.cashout();
   state.twistInRound = false;
+  renderActionControls();
   const wager = state.twistWager || state.bet;
   const payout = effectivePayout(res ? res.payout : wager * twist.multiplier);
   const mult = wager > 0 ? round2(payout / wager) : 0;
@@ -1941,7 +2108,7 @@ let lastFocused = null;
 function openModals() { return $$('.modal').filter((m) => !m.hidden); }
 
 function syncOverlayScrollLock() {
-  const locked = openModals().length > 0 || document.body.classList.contains('tools-open');
+  const locked = openModals().length > 0 || document.body.classList.contains('tools-open') || document.body.classList.contains('bet-controls-open');
   document.body.style.overflow = locked ? 'hidden' : '';
 }
 
@@ -1958,7 +2125,7 @@ function openModal(modal) {
     : document.activeElement;
   modal.hidden = false;
   syncOverlayScrollLock();
-  const focusable = modal.querySelector('input:not([readonly]), button:not([data-close]), select');
+  const focusable = modal.querySelector('input[name="appearance-theme"]:checked, input:not([readonly]), button:not([data-close]), select');
   (focusable || modal.querySelector('[data-close]'))?.focus();
   audio?.playButtonClick();
 }
@@ -1995,7 +2162,14 @@ function trapFocus(e) {
     return;
   }
   const toolsNav = $('#topbar-actions');
-  if (toolsNav && document.body.classList.contains('tools-open')) cycleFocus(e, toolsNav);
+  if (toolsNav && document.body.classList.contains('tools-open')) {
+    cycleFocus(e, toolsNav);
+    return;
+  }
+  const betControlsContent = $('#bet-controls-content');
+  if (betControlsContent && document.body.classList.contains('bet-controls-open')) {
+    cycleFocus(e, betControlsContent);
+  }
 }
 
 /* ------------------------------ Customize ------------------------------ */
@@ -2394,7 +2568,58 @@ function resetStatsOnly() {
 
 /* ------------------------------- Wiring -------------------------------- */
 
+/**
+ * Segmented tabs and radio groups use native buttons for reliable touch and
+ * click behavior. This small shared keyboard layer adds the expected arrow,
+ * Home, and End navigation while keeping one tab stop in each composite.
+ */
+function bindCompositeControlKeys() {
+  const itemSelector = '[role="radio"], [role="tab"]';
+  const groupSelector = '[role="radiogroup"], [role="tablist"]';
+
+  const itemsFor = (group) => $$(itemSelector, group).filter((item) => !item.disabled && !item.hidden);
+  const isSelected = (item) => item.getAttribute(item.getAttribute('role') === 'tab' ? 'aria-selected' : 'aria-checked') === 'true';
+  const syncGroup = (group) => {
+    const items = itemsFor(group);
+    if (!items.length) return;
+    const selected = items.find(isSelected) || items[0];
+    items.forEach((item) => { item.tabIndex = item === selected ? 0 : -1; });
+  };
+
+  $$(groupSelector).forEach(syncGroup);
+
+  document.addEventListener('click', (event) => {
+    const item = event.target.closest?.(itemSelector);
+    const group = item?.closest(groupSelector);
+    if (group) queueMicrotask(() => syncGroup(group));
+  });
+
+  document.addEventListener('keydown', (event) => {
+    const current = event.target.closest?.(itemSelector);
+    const group = current?.closest(groupSelector);
+    if (!current || !group) return;
+
+    const items = itemsFor(group);
+    if (items.length < 2) return;
+    const index = Math.max(0, items.indexOf(current));
+    let nextIndex = index;
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (index + 1) % items.length;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (index - 1 + items.length) % items.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = items.length - 1;
+    else return;
+
+    event.preventDefault();
+    const next = items[nextIndex];
+    next.focus();
+    next.click();
+  });
+}
+
 function bindEvents() {
+  bindCompositeControlKeys();
+
   /* wallet */
   el.btnDeposit.addEventListener('click', () => {
     adjustBalance(DEPOSIT_STEP);
@@ -2531,7 +2756,11 @@ function bindEvents() {
     rouletteSeg.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-color]');
       if (!btn) return;
-      $$('[data-color]', rouletteSeg).forEach((b) => b.classList.toggle('is-active', b === btn));
+      $$('[data-color]', rouletteSeg).forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-checked', String(on));
+      });
       audio?.play?.('roulette', 'click', { volume: 0.62 });
     });
   }
@@ -2540,11 +2769,15 @@ function bindEvents() {
   $('#btn-pdice-over')?.addEventListener('click', () => {
     $('#btn-pdice-over')?.classList.add('is-active');
     $('#btn-pdice-under')?.classList.remove('is-active');
+    $('#btn-pdice-over')?.setAttribute('aria-checked', 'true');
+    $('#btn-pdice-under')?.setAttribute('aria-checked', 'false');
     audio?.play?.('pocket-dice', 'over_under', { volume: 0.72 });
   });
   $('#btn-pdice-under')?.addEventListener('click', () => {
     $('#btn-pdice-under')?.classList.add('is-active');
     $('#btn-pdice-over')?.classList.remove('is-active');
+    $('#btn-pdice-under')?.setAttribute('aria-checked', 'true');
+    $('#btn-pdice-over')?.setAttribute('aria-checked', 'false');
     audio?.play?.('pocket-dice', 'over_under', { volume: 0.72 });
   });
 
@@ -2552,10 +2785,14 @@ function bindEvents() {
   $('#btn-dice-over')?.addEventListener('click', () => {
     $('#btn-dice-over')?.classList.add('is-active');
     $('#btn-dice-under')?.classList.remove('is-active');
+    $('#btn-dice-over')?.setAttribute('aria-checked', 'true');
+    $('#btn-dice-under')?.setAttribute('aria-checked', 'false');
   });
   $('#btn-dice-under')?.addEventListener('click', () => {
     $('#btn-dice-under')?.classList.add('is-active');
     $('#btn-dice-over')?.classList.remove('is-active');
+    $('#btn-dice-under')?.setAttribute('aria-checked', 'true');
+    $('#btn-dice-over')?.setAttribute('aria-checked', 'false');
   });
 
   /* Hilo buttons */
@@ -2571,41 +2808,6 @@ function bindEvents() {
   /* Mines cashout button */
   $('#btn-mines-cashout')?.addEventListener('click', () => { cashoutMines(); });
 
-  /* Blackjack buttons */
-  $('#btn-bj-hit')?.addEventListener('click', async () => {
-    if (!blackjack) return;
-    const res = await blackjack.hit?.();
-    if (res && (res.status === 'completed' || res.status === 'dealer_win' || res.status === 'player_win' || res.status === 'push')) {
-      const payout = effectivePayout(res.payout || 0);
-      if (payout > 0) { state.balance = round2(state.balance + payout); renderBalance(1); }
-      recordGenericRound(payout > 0 ? round2(payout / state.bet) : 0, state.bet, payout);
-      toast(`Blackjack: ${res.status.toUpperCase()}`, payout > state.bet ? 'ok' : 'info');
-    }
-  });
-  $('#btn-bj-stand')?.addEventListener('click', async () => {
-    if (!blackjack) return;
-    const res = await blackjack.stand?.();
-    if (res) {
-      const payout = effectivePayout(res.payout || 0);
-      if (payout > 0) { state.balance = round2(state.balance + payout); renderBalance(1); }
-      recordGenericRound(payout > 0 ? round2(payout / state.bet) : 0, state.bet, payout);
-      toast(`Blackjack: ${res.status.toUpperCase()}`, payout > state.bet ? 'ok' : 'info');
-    }
-  });
-  $('#btn-bj-double')?.addEventListener('click', async () => {
-    if (!blackjack) return;
-    if (state.balance < state.bet) { toast('Insufficient balance to double', 'error'); return; }
-    state.balance = round2(state.balance - state.bet);
-    renderBalance(-1);
-    const totalWager = round2(state.bet * 2);
-    const res = await blackjack.double?.();
-    if (res) {
-      const payout = effectivePayout(res.payout || 0);
-      if (payout > 0) { state.balance = round2(state.balance + payout); renderBalance(1); }
-      recordGenericRound(payout > 0 ? round2(payout / totalWager) : 0, totalWager, payout);
-      toast(`Blackjack Double: ${res.status.toUpperCase()} (${fmtSigned(payout - totalWager)})`, payout > totalWager ? 'ok' : 'info');
-    }
-  });
   $$('[data-auto-count]').forEach((b) => b.addEventListener('click', () => {
     state.autoCount = Number(b.dataset.autoCount);
     el.autoCount.value = String(state.autoCount);
@@ -2847,18 +3049,26 @@ function bindEvents() {
     if (!isMuted) audio?.playButtonClick();
   });
 
-  /* Compact-header tools sheet. CSS switches the existing tool nav into a
-     bottom sheet below 960px, including phone landscape. The controls are not
-     duplicated, so the same handlers and analytics hooks remain authoritative. */
+  /* Compact-header sheets. Both reuse the original controls, handlers and
+     state; only their presentation changes below 960px. */
   const toolsNav = $('#topbar-actions');
   const toolsBtn = $('#btn-more');
   const toolsScrim = $('#tools-scrim');
+  const betControls = el.betControls;
+  const betControlsContent = el.betControlsContent;
+  const betControlsBtn = el.btnBetSettings;
+  const betControlsClose = el.btnCloseBetControls;
+  const betControlsScrim = el.betControlsScrim;
   const toolsSheetQuery = window.matchMedia('(max-width: 960px)');
   let toolsLastFocused = null;
+  let betControlsLastFocused = null;
 
   function setToolsOpen(requested, { restoreFocus = true, focusFirst = true } = {}) {
     const open = Boolean(requested && toolsSheetQuery.matches);
-    if (open) toolsLastFocused = document.activeElement;
+    if (open) {
+      toolsLastFocused = document.activeElement;
+      setBetControlsOpen(false, { restoreFocus: false, focusFirst: false });
+    }
     document.body.classList.toggle('tools-open', open);
     toolsBtn?.setAttribute('aria-expanded', String(open));
     if (toolsNav) toolsNav.inert = toolsSheetQuery.matches && !open;
@@ -2872,10 +3082,50 @@ function bindEvents() {
     }
   }
 
+  function setBetControlsOpen(requested, { restoreFocus = true, focusFirst = true } = {}) {
+    const open = Boolean(requested && toolsSheetQuery.matches && document.body.dataset.route === 'game');
+    if (open) {
+      betControlsLastFocused = document.activeElement;
+      setToolsOpen(false, { restoreFocus: false, focusFirst: false });
+    }
+    document.body.classList.toggle('bet-controls-open', open);
+    betControlsBtn?.setAttribute('aria-expanded', String(open));
+    if (betControlsContent) {
+      /* The live decision dock remains a child of this sheet so the original
+         controls and event handlers stay authoritative. CSS hides the closed
+         sheet with visibility while selectively revealing that dock; inert on
+         this ancestor would also disable the visible Hit/Cash Out controls. */
+      if (toolsSheetQuery.matches && open) {
+        betControlsContent.setAttribute('role', 'dialog');
+        betControlsContent.setAttribute('aria-modal', 'true');
+      } else {
+        betControlsContent.removeAttribute('role');
+        betControlsContent.removeAttribute('aria-modal');
+      }
+    }
+    syncOverlayScrollLock();
+
+    if (open && focusFirst) {
+      requestAnimationFrame(() => (el.betInput || focusableItems(betControlsContent)[0])?.focus());
+    } else if (!open && restoreFocus) {
+      const target = betControlsLastFocused instanceof HTMLElement ? betControlsLastFocused : betControlsBtn;
+      if (target instanceof HTMLElement) target.focus();
+    }
+  }
+
   toolsBtn?.addEventListener('click', () => {
     setToolsOpen(!document.body.classList.contains('tools-open'));
     audio?.playButtonClick();
   });
+  betControlsBtn?.addEventListener('click', () => {
+    setBetControlsOpen(!document.body.classList.contains('bet-controls-open'));
+    audio?.playButtonClick();
+  });
+  betControlsClose?.addEventListener('click', () => setBetControlsOpen(false));
+  betControlsScrim?.addEventListener('click', () => setBetControlsOpen(false));
+  betControls?.addEventListener('input', () => requestAnimationFrame(renderPhoneBetSummary));
+  betControls?.addEventListener('change', () => requestAnimationFrame(renderPhoneBetSummary));
+  betControls?.addEventListener('click', () => requestAnimationFrame(renderPhoneBetSummary));
   toolsScrim?.addEventListener('click', () => setToolsOpen(false));
   toolsNav?.addEventListener('click', (e) => {
     if (!(e.target instanceof Element) || !e.target.closest('.btn')) return;
@@ -2885,17 +3135,35 @@ function bindEvents() {
     setToolsOpen(false, { restoreFocus: openModals().length === 0 });
   });
   toolsSheetQuery.addEventListener('change', ({ matches }) => {
-    if (!matches) setToolsOpen(false, { restoreFocus: false, focusFirst: false });
-    else if (toolsNav) toolsNav.inert = !document.body.classList.contains('tools-open');
+    if (!matches) {
+      setToolsOpen(false, { restoreFocus: false, focusFirst: false });
+      setBetControlsOpen(false, { restoreFocus: false, focusFirst: false });
+    } else {
+      if (toolsNav) toolsNav.inert = !document.body.classList.contains('tools-open');
+    }
   });
   if (toolsNav) toolsNav.inert = toolsSheetQuery.matches;
+
+  closeToolsSheet = (options = {}) => setToolsOpen(false, options);
+  closeBetControlsSheet = (options = {}) => setBetControlsOpen(false, options);
+  closeTransientOverlay = ({ restoreFocus = true } = {}) => {
+    if (document.body.classList.contains('tools-open')) {
+      setToolsOpen(false, { restoreFocus });
+      return true;
+    }
+    if (document.body.classList.contains('bet-controls-open')) {
+      setBetControlsOpen(false, { restoreFocus });
+      return true;
+    }
+    return false;
+  };
 
   /* hotkeys */
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = openModals().pop();
       if (modal) { e.preventDefault(); closeModal(modal); return; }
-      if (document.body.classList.contains('tools-open')) { e.preventDefault(); setToolsOpen(false); return; }
+      if (closeTransientOverlay()) { e.preventDefault(); return; }
     }
     if (e.key === 'Tab') { trapFocus(e); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2903,6 +3171,7 @@ function bindEvents() {
     const t = e.target;
     if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (openModals().length) return;
+    if (document.body.classList.contains('tools-open') || document.body.classList.contains('bet-controls-open')) return;
 
     if (t instanceof HTMLElement && t.closest('#lobby')) return;
 
@@ -3063,18 +3332,51 @@ async function init() {
 
   try {
     const kenoStage = document.getElementById('keno-stage');
-    if (kenoStage) keno = new KenoGame(kenoStage, { audio });
+    if (kenoStage) keno = new KenoGame(kenoStage, {
+      audio,
+      onPickChange: () => { renderActionControls(); renderPhoneBetSummary(); },
+      onStateChange: () => { renderActionControls(); renderPhoneBetSummary(); },
+      onUpdate: () => renderActionControls(),
+    });
   } catch (err) { console.warn('[keno] init failed', err); }
 
   try {
     const minesStage = document.getElementById('mines-stage');
-    if (minesStage) mines = new MinesGame(minesStage, { audio });
+    if (minesStage) mines = new MinesGame(minesStage, {
+      audio,
+      onStateChange: (nextState) => handleMinesState(nextState),
+      onUpdate: () => renderActionControls(),
+    });
   } catch (err) { console.warn('[mines] init failed', err); }
 
   try {
     const bjStage = document.getElementById('blackjack-stage');
-    if (bjStage) blackjack = new BlackjackGame(bjStage, { audio });
+    if (bjStage) blackjack = new BlackjackGame(bjStage, {
+      audio,
+      onStateChange: () => { renderActionControls(); renderDropButton(); },
+      onUpdate: () => renderActionControls(),
+    });
   } catch (err) { console.warn('[blackjack] init failed', err); }
+
+  const gameRenderers = () => [
+    physics, crash, twist, limbo, roulette, pocketDice, dice, hilo, keno, mines, blackjack,
+  ];
+
+  const refreshThemeRendering = () => {
+    gameRenderers().forEach((game) => {
+      if (typeof game?.refreshTheme === 'function') game.refreshTheme();
+      else game?.resize?.();
+    });
+  };
+
+  const theme = initThemeControls({
+    onChange: ({ source }) => {
+      refreshThemeRendering();
+      // Opening Customize already provides audible feedback. A cross-tab event
+      // should stay silent, while a deliberate selection may confirm itself.
+      if (source === 'selector') audio?.playButtonClick();
+    },
+  });
 
   const GAMES = ['plinko','crash','twist','limbo','roulette','pocket-dice','dice','hilo','keno','mines','blackjack'];
 
@@ -3082,7 +3384,12 @@ async function init() {
     if (!GAMES.includes(g)) return false;
     state.activeGame = g;
     limbo?.setAudioActive?.(document.body.dataset.route === 'game' && g === 'limbo');
-    $$('.game-tab').forEach((t) => t.classList.toggle('is-active', t.dataset.game === g));
+    $$('.game-tab').forEach((t) => {
+      const active = t.dataset.game === g;
+      t.classList.toggle('is-active', active);
+      if (active) t.setAttribute('aria-current', 'page');
+      else t.removeAttribute('aria-current');
+    });
     $$('.game-stage-view').forEach((view) => {
       const active = view.id === `view-${g}`;
       view.classList.toggle('is-active', active);
@@ -3104,6 +3411,7 @@ async function init() {
     // per-game label and the crash cash-out override, and renderDropButton() can
     // no longer clobber what this line just wrote.
     renderDropButton();
+    renderPhoneBetSummary();
 
     const gameInst = {
       plinko: physics,
@@ -3146,6 +3454,8 @@ async function init() {
   // requested route against the live one instead, which is also correct for back/forward.
 
   function enterGame(g) {
+    closeToolsSheet({ restoreFocus: false, focusFirst: false });
+    closeBetControlsSheet({ restoreFocus: false, focusFirst: false });
     if (!GAMES.includes(g)) {
       showLobby();
       return;
@@ -3177,6 +3487,8 @@ async function init() {
   }
 
   function showLobby() {
+    closeToolsSheet({ restoreFocus: false, focusFirst: false });
+    closeBetControlsSheet({ restoreFocus: false, focusFirst: false });
     if (auto?.running) stopAuto('Lobby returned');
     document.body.dataset.route = 'lobby';
     limbo?.setAudioActive?.(false);
@@ -3248,8 +3560,11 @@ async function init() {
 
   $$('.lobby-filter').forEach((btn) => {
     btn.addEventListener('click', () => {
-      $$('.lobby-filter').forEach((b) => b.classList.remove('is-active'));
-      btn.classList.add('is-active');
+      $$('.lobby-filter').forEach((b) => {
+        const active = b === btn;
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
       applyLobbyFilter();
     });
   });
@@ -3263,8 +3578,13 @@ async function init() {
   if (clearSearchBtn) {
     clearSearchBtn.addEventListener('click', () => {
       if (searchInput) searchInput.value = '';
-      $$('.lobby-filter').forEach((b) => b.classList.toggle('is-active', b.dataset.filter === 'all'));
+      $$('.lobby-filter').forEach((b) => {
+        const active = b.dataset.filter === 'all';
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
       applyLobbyFilter();
+      searchInput?.focus();
     });
   }
 
@@ -3294,12 +3614,12 @@ async function init() {
   renderAccountChip();          // boot with the active profile's name, not "Guest"
 
   window.plinko = {
-    state, pending, physics, crash, twist, limbo, roulette, pocketDice, dice, hilo, keno, mines, blackjack, audio, auto,
+    state, pending, physics, crash, twist, limbo, roulette, pocketDice, dice, hilo, keno, mines, blackjack, audio, auto, theme,
     dropOne, playCrash, playTwist, cashoutTwist, playLimbo, playRoulette, playPocketDice, playDice, playHilo, guessHilo, cashoutHilo, playKeno, playMines, cashoutMines, playBlackjack, startAuto, stopAuto, settle,
     selectGame, enterGame, showLobby, applyLobbyFilter,
-    closeModal, openModals,
+    closeModal, openModals, closeTransientOverlay,
     setCheat, renderCheats, cheatCtx,
-    setCustomize, renderCustomize, applyCustomize, effectivePayout, payoutScale,
+    setCustomize, renderCustomize, applyCustomize, effectivePayout, payoutScale, refreshThemeRendering,
     Accounts, switchUser, renderAccounts, snapshot, applySnapshot, bootProfiles,
   };
 

@@ -1,22 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="default">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0f172a" />
+<meta name="color-scheme" content="dark" />
+<script src="js/theme-bootstrap.js"></script>
 <meta name="description" content="Nour's Casino — an 11-game provably fair casino suite featuring Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice, Dice, Hilo, Keno, Mines, and Blackjack." />
 <title>Nour's Casino &middot; Provably Fair Originals</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-
+<link rel="preload" as="font" type="font/woff2" href="fonts/inter-latin.woff2" crossorigin />
+<link rel="preload" as="font" type="font/woff2" href="fonts/roboto-mono-latin.woff2" crossorigin />
+<link rel="stylesheet" href="css/fonts.css" />
 <link rel="stylesheet" href="styles.css" />
-<link rel="stylesheet" href="css/casino.css" />
+<link rel="stylesheet" href="css/gamdom.css" />
 <link rel="stylesheet" href="css/lobby.css" />
+<link rel="stylesheet" href="css/themes.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2300ff86' d='M8.7 1H23.3Q27.4 1 28.03 5.1L31.59 28.3Q32 31 29.3 31H2.7Q0 31 .41 28.3L3.97 5.1Q4.6 1 8.7 1Z'/%3E%3Cpath fill='%23071018' d='M5.58 26.2L6.54 6.6H12.04L20.48 17.18 19.96 6.6H25.46L26.42 26.2H20.92L11.65 14.57 11.08 26.2Z'/%3E%3C/svg%3E" />
 </head>
 <body data-route="lobby">
+
+<a class="skip-link skip-link--lobby" href="#lobby">Skip to game lobby</a>
+<a class="skip-link skip-link--game" href="#main">Skip to active game</a>
 
 <!-- ============================= SVG ICON SPRITE ============================= -->
 <svg xmlns="http://www.w3.org/2000/svg" class="svg-sprite" aria-hidden="true" focusable="false">
@@ -45,6 +50,7 @@
   <symbol id="i-coins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9" cy="7" rx="6" ry="2.8" /><path d="M3 7v4.2c0 1.6 2.7 2.8 6 2.8s6-1.2 6-2.8V7" /><path d="M15 10.4c2.9.3 5 1.4 5 2.7v4c0 1.6-2.7 2.8-6 2.8-2.6 0-4.8-.7-5.7-1.8" /><path d="M3 11.2v4.3C3 17 5.7 18.2 9 18.2h.4" /></symbol>
   <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 15.4A8.2 8.2 0 0 1 8.6 3.8 8.6 8.6 0 1 0 20.2 15.4Z" /><path d="M16.8 5.2h.01M19.5 8.3h.01" /></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" /></symbol>
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4.35-4.35" /></symbol>
@@ -66,7 +72,7 @@
     <button type="button" class="btn btn--ghost btn--icon home-btn" id="btn-home" title="Back to lobby" aria-label="Back to lobby"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-grid" /></svg></button>
 
     <nav class="game-nav" aria-label="Select Game">
-      <button type="button" class="game-tab is-active" data-game="plinko"><svg class="ico" width="16" height="16"><use href="#i-target" /></svg> Plinko</button>
+      <button type="button" class="game-tab is-active" data-game="plinko" aria-current="page"><svg class="ico" width="16" height="16"><use href="#i-target" /></svg> Plinko</button>
       <button type="button" class="game-tab" data-game="crash"><svg class="ico" width="16" height="16"><use href="#i-trend" /></svg> Crash</button>
       <button type="button" class="game-tab" data-game="twist"><svg class="ico" width="16" height="16"><use href="#i-dice" /></svg> Twist</button>
       <button type="button" class="game-tab" data-game="limbo"><svg class="ico" width="16" height="16"><use href="#i-bolt" /></svg> Limbo</button>
@@ -101,7 +107,7 @@
         <span class="acct-dot" id="acct-dot" aria-hidden="true"></span>
         <span class="acct-name" id="acct-name">Guest</span>
       </button>
-      <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-custom" title="Customize balance, house edge and limits" aria-label="Customize balance, house edge and limits">
+      <button type="button" class="btn btn--ghost btn--icon btn--sm" id="btn-custom" title="Customize appearance, balance, house edge and limits" aria-label="Customize appearance, balance, house edge and limits">
         <svg class="ico" width="15" height="15" aria-hidden="true"><use href="#i-sliders" /></svg>
         <span class="tool-sheet-label">Customize</span>
       </button>
@@ -138,7 +144,7 @@
 </header>
 
 <!-- ================================= LOBBY ================================= -->
-<main id="lobby" class="lobby" aria-label="Game lobby">
+<main id="lobby" class="lobby" aria-label="Game lobby" tabindex="-1">
   <div class="lobby__bg" aria-hidden="true">
     <span class="lobby__orb lobby__orb--a"></span>
     <span class="lobby__orb lobby__orb--b"></span>
@@ -147,6 +153,7 @@
 
   <div class="lobby-hero">
     <div class="lobby-hero__copy">
+      <div class="lobby-hero__eyebrow" aria-label="Eleven provably fair originals"><span>11 provably fair originals</span></div>
       <h1 class="lobby-hero__title">Nour's <em>Casino</em></h1>
       <p class="lobby-hero__sub">Eleven instant, provably fair casino games with real-time physics and transparent odds.</p>
       <div class="lobby-hero__actions">
@@ -204,12 +211,12 @@
       <svg class="ico lobby-search__ico" width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-search" /></svg>
       <input id="lobby-search" class="input" type="search" placeholder="Search games" aria-label="Search games" />
     </div>
-    <div class="lobby-filters" role="tablist" aria-label="Game categories">
-      <button type="button" class="lobby-filter is-active" data-filter="all">All</button>
-      <button type="button" class="lobby-filter" data-filter="popular">Popular</button>
-      <button type="button" class="lobby-filter" data-filter="instant">Instant</button>
-      <button type="button" class="lobby-filter" data-filter="cards">Cards</button>
-      <button type="button" class="lobby-filter" data-filter="multiplier">Multiplier</button>
+    <div class="lobby-filters" role="group" aria-label="Filter games by category">
+      <button type="button" class="lobby-filter is-active" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="lobby-filter" data-filter="popular" aria-pressed="false">Popular</button>
+      <button type="button" class="lobby-filter" data-filter="instant" aria-pressed="false">Instant</button>
+      <button type="button" class="lobby-filter" data-filter="cards" aria-pressed="false">Cards</button>
+      <button type="button" class="lobby-filter" data-filter="multiplier" aria-pressed="false">Multiplier</button>
     </div>
   </div>
 
@@ -533,7 +540,7 @@
   </div>
 
   <div id="lobby-empty" class="lobby-empty" hidden>
-    <p>No games match your search.</p>
+    <p role="status" aria-live="polite">No games match your search.</p>
     <button id="lobby-clear-search" type="button" class="btn btn--ghost btn--sm">Clear Search</button>
   </div>
 
@@ -542,11 +549,22 @@
   </footer>
 </main>
 
-<main class="layout" id="main" aria-labelledby="game-page-title">
+<main class="layout" id="main" aria-labelledby="game-page-title" tabindex="-1">
   <h1 class="sr-only" id="game-page-title">Plinko</h1>
 
   <!-- ------------------------------- SIDEBAR ------------------------------- -->
-  <aside class="panel controls" aria-label="Bet controls">
+  <aside class="panel controls" id="bet-controls" aria-label="Bet controls">
+
+    <div class="controls-sheet-content" id="bet-controls-content" aria-labelledby="bet-sheet-title">
+      <header class="controls-sheet-head">
+        <div>
+          <span class="controls-sheet-eyebrow">Wager setup</span>
+          <h2 id="bet-sheet-title">Plinko controls</h2>
+        </div>
+        <button type="button" class="btn btn--ghost btn--icon" id="btn-close-bet-controls" aria-label="Close wager settings">
+          <svg class="ico" width="18" height="18" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </header>
 
     <div class="segmented segmented--mode" role="tablist" aria-label="Betting mode">
       <button type="button" class="segmented__btn is-active" role="tab" aria-selected="true" data-mode="manual" id="tab-manual" aria-controls="pane-auto">
@@ -668,10 +686,10 @@
             <label class="field__label">Bet Color / Choice</label>
             <span class="field__hint">Red (2x) &middot; Green (14x) &middot; Black (2x)</span>
           </div>
-          <div class="segmented" role="radiogroup" id="roulette-color-seg">
-            <button type="button" class="segmented__btn is-active" data-color="red" style="color:#ef4444;">Red 2x</button>
-            <button type="button" class="segmented__btn" data-color="green" style="color:#10b981;">Green 14x</button>
-            <button type="button" class="segmented__btn" data-color="black" style="color:#94a3b8;">Black 2x</button>
+          <div class="segmented" role="radiogroup" aria-label="Roulette bet color" id="roulette-color-seg">
+            <button type="button" class="segmented__btn is-active" role="radio" aria-checked="true" data-color="red" style="color:#ef4444;">Red 2x</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" data-color="green" style="color:#10b981;">Green 14x</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" data-color="black" style="color:#94a3b8;">Black 2x</button>
           </div>
         </div>
       </div>
@@ -686,9 +704,9 @@
           <div class="input-group">
             <input class="input" type="text" id="pocket-dice-target" value="50.00" inputmode="decimal" />
           </div>
-          <div class="segmented" style="margin-top:8px;">
-            <button type="button" class="segmented__btn is-active" id="btn-pdice-over" data-cond="over">Roll Over &gt;</button>
-            <button type="button" class="segmented__btn" id="btn-pdice-under" data-cond="under">Roll Under &lt;</button>
+          <div class="segmented" role="radiogroup" aria-label="Pocket Dice result condition" style="margin-top:8px;">
+            <button type="button" class="segmented__btn is-active" role="radio" aria-checked="true" id="btn-pdice-over" data-cond="over">Roll Over &gt;</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" id="btn-pdice-under" data-cond="under">Roll Under &lt;</button>
           </div>
         </div>
       </div>
@@ -703,9 +721,9 @@
           <div class="input-group">
             <input class="input" type="text" id="dice-target" value="50.00" inputmode="decimal" />
           </div>
-          <div class="segmented" style="margin-top:8px;">
-            <button type="button" class="segmented__btn is-active" id="btn-dice-over" data-cond="over">Roll Over &gt;</button>
-            <button type="button" class="segmented__btn" id="btn-dice-under" data-cond="under">Roll Under &lt;</button>
+          <div class="segmented" role="radiogroup" aria-label="Dice result condition" style="margin-top:8px;">
+            <button type="button" class="segmented__btn is-active" role="radio" aria-checked="true" id="btn-dice-over" data-cond="over">Roll Over &gt;</button>
+            <button type="button" class="segmented__btn" role="radio" aria-checked="false" id="btn-dice-under" data-cond="under">Roll Under &lt;</button>
           </div>
         </div>
       </div>
@@ -826,11 +844,24 @@
       </div>
 
     </div>
+    </div>
 
-    <button type="button" class="btn btn--drop" id="btn-drop">
-      <span class="btn--drop__label" id="drop-label">Drop Ball</span>
-      <span class="btn--drop__sub" id="drop-sub">Press Space</span>
-    </button>
+    <div class="phone-playbar">
+      <button type="button" class="phone-bet-summary" id="btn-bet-settings"
+              aria-label="Open wager settings" aria-expanded="false"
+              aria-haspopup="dialog" aria-controls="bet-controls-content">
+        <svg class="ico" width="17" height="17" aria-hidden="true"><use href="#i-sliders" /></svg>
+        <span class="phone-bet-summary__copy">
+          <strong id="phone-bet-amount">$10.00</strong>
+          <small id="phone-bet-detail">Medium &middot; 16 rows</small>
+        </span>
+      </button>
+
+      <button type="button" class="btn btn--drop" id="btn-drop">
+        <span class="btn--drop__label" id="drop-label">Drop Ball</span>
+        <span class="btn--drop__sub" id="drop-sub">Press Space</span>
+      </button>
+    </div>
 
     <ul class="hotkeys" aria-label="Keyboard shortcuts">
       <li><kbd>Space</kbd> Drop</li>
@@ -939,7 +970,7 @@
         <span>Nonce</span><b id="mini-nonce">0</b>
       </div>
     </div>
-    <!-- Casino Live Players Table -->
+    <!-- Gamdom Live Players Table -->
     <div class="live-players-section">
       <div class="live-players-header">
         <span class="live-players-title"><svg class="ico" width="16" height="16"><use href="#i-hand" /></svg> Active Bets</span>
@@ -1152,9 +1183,39 @@
 
     <div class="modal__body">
       <p class="prose">
-        A sandbox for the whole suite — these values change the real payout maths, not just the display.
-        Every game is rebalanced around the house edge you set here.
+        Choose the casino appearance, then tune the play-money sandbox. Game values change the real payout maths, not just the display.
       </p>
+
+      <section class="verify appearance-settings" aria-labelledby="appearance-title">
+        <h3 class="verify__title" id="appearance-title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-moon" /></svg> Appearance</h3>
+        <fieldset class="appearance-fieldset" id="appearance-theme" data-active-theme="default">
+          <legend class="sr-only">Color theme</legend>
+          <div class="theme-options">
+            <label class="theme-option">
+              <input class="sr-only theme-option__input" type="radio" name="appearance-theme" value="default" />
+              <span class="theme-option__preview theme-option__preview--default" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="theme-option__copy">
+                <strong>Default</strong>
+                <small>Original deep-navy casino appearance</small>
+              </span>
+              <span class="theme-option__state" aria-hidden="true"><svg class="ico" width="13" height="13"><use href="#i-check" /></svg> Selected</span>
+            </label>
+            <label class="theme-option">
+              <input class="sr-only theme-option__input" type="radio" name="appearance-theme" value="oled" />
+              <span class="theme-option__preview theme-option__preview--oled" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="theme-option__copy">
+                <strong>OLED Black</strong>
+                <small>True-black canvas with restrained elevated surfaces</small>
+              </span>
+              <span class="theme-option__state" aria-hidden="true"><svg class="ico" width="13" height="13"><use href="#i-check" /></svg> Selected</span>
+            </label>
+          </div>
+          <p class="field__hint">Changes apply immediately and are saved on this device.</p>
+          <p class="sr-only" id="appearance-theme-status" role="status" aria-live="polite"></p>
+        </fieldset>
+      </section>
+
+      <hr class="rule" />
 
       <section class="verify">
         <h3 class="verify__title"><svg class="ico" width="16" height="16" aria-hidden="true"><use href="#i-coins" /></svg> Balance</h3>
@@ -1381,6 +1442,7 @@
      in that element's z-index:60 stacking context and could never cover the
      fixed Drop bar. -->
 <div class="tools-scrim" id="tools-scrim" aria-hidden="true"></div>
+<div class="bet-controls-scrim" id="bet-controls-scrim" aria-hidden="true"></div>
 
 <!-- Toasts -->
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>

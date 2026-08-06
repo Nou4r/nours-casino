@@ -2,18 +2,18 @@
 # Docs: https://developers.cloudflare.com/workers/static-assets/headers/
 #
 # The CSP below is tight because this app genuinely needs almost nothing:
-# one external module script, no inline <script>, no inline event handlers,
+# two same-origin external scripts (pre-paint bootstrap + module entry), no inline <script>,
 # no XHR/fetch, no iframes. The two allowances that are load-bearing:
 #   style-src 'unsafe-inline'  -- 29 inline style="--accent:..." attributes in index.html
 #   img-src data:              -- the favicon is an inline data:image/svg+xml URI
-# fonts.googleapis.com / fonts.gstatic.com are the Inter + Roboto Mono links.
+# Inter + Roboto Mono are self-hosted, so fonts and styles stay same-origin.
 
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
 
 # Filenames are not content-hashed, so the HTML entry point must always revalidate.
 # (This is also the Cloudflare default; it is stated here so a future edit to the

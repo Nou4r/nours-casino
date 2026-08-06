@@ -1,7 +1,7 @@
 # Nour's Casino — Project Handoff
 
-A standalone, dependency-free, provably-fair casino suite with eleven original games.
-Pure ES modules + Canvas 2D.
+A standalone, dependency-free, provably-fair casino suite modelled on Gamdom's Originals
+(`gamdom.com/plinko`, `/crash`, `/twist`, `/limbo`, …). Pure ES modules + Canvas 2D.
 **No build step, no framework, no CDN-hosted JS/CSS, no runtime dependency.** Open `index.html`
 over HTTP and it runs. (`package.json` carries two build-time toolchains and ships nothing to
 the browser: `wrangler` for the Cloudflare deploy (§13), and Capacitor for the native Android
@@ -37,7 +37,7 @@ for f in js/*.js js/games/*.js js/math/*.js js/render/*.js; do node --check "$f"
 ```
 index.html           1373 lines   All markup: topbar, lobby screen + 11 inline SVG card scenes, sidebar control panes, stage views, modals, cheat panel, account + customize modals, SVG sprite
 styles.css           1236 lines   Base theme, layout grid, components, responsive shell ← read §14
-css/casino.css        935 lines   Colour tokens, live-bets skin, chrome polish, brand mark, cheat panel, player profiles (loaded AFTER styles.css)
+css/gamdom.css        935 lines   Colour tokens, live-bets skin, chrome polish, brand mark, cheat panel, player profiles (loaded AFTER styles.css)
 css/lobby.css        1430 lines   Lobby design system: route visibility, hero, grid, card art keyframes (loaded LAST)
 start.bat              23 lines   Windows batch launcher (opens browser + starts python http.server 8080)
 cookies.txt                       Session cookies used only to view the reference site; app never reads it (gitignored — local only)
@@ -46,7 +46,7 @@ js/accounts.js        791 lines   Named player profiles in localStorage + export
 js/cheats.js          403 lines   Cheat mode outcome peek for all 11 games ← read §6
 js/physics.js        1604 lines   Plinko board: peg pyramid, ball sim, bucket VFX
 js/audio.js           570 lines   Shared asset-backed HTMLAudio pool, cue aliases, mute/volume persistence
-assets/audio/          77 files   Bundled game cues (76 MP3, 1 WAV; 4,742,478 bytes)
+assets/gamdom/         77 files   Bundled Gamdom game cues (76 MP3, 1 WAV; 4,742,478 bytes)
 js/render/theme.js    636 lines   SHARED canvas theme: palette, paintStage, peg/chip/tile/card/... ← read §5
 js/math/multipliers.js 163 lines  Plinko payout tables (rows 8-16 × low/medium/high) + binomial/RTP math
 js/math/provably-fair.js 318      HMAC-SHA256 outcome derivation, seed pair, verifier, SHA-256 fallback
@@ -220,7 +220,7 @@ All of that switching is **CSS only** (`css/lobby.css`, attribute selectors, no 
 `historyChip(entry)` branches on `entry.game`:
 
 - `'crash'` → `x1.61` prefix format, red `<2.00` / green `≥2.00` (`multToneCrash`, `fmtMultX`) —
-  uses the project's crash reel design.
+  matches Gamdom's crash reel.
 - everything else → `110×` suffix format with the 5-band heat map (`multTone`, `fmtMult`).
 
 For a crash bust, `mult` is `0` (payout math) but `crashMult` carries the real crash point
@@ -449,7 +449,7 @@ Four knobs: exact balance, house edge (negative allowed), bet limits, max-win ca
 
 ## 8. Crash renderer (`js/games/crash.js`) — read before editing
 
-Refined through side-by-side visual review. Draw order in `draw()`:
+Reworked to match a live `gamdom.com/crash` capture. Draw order in `draw()`:
 
 ```
 drawBackground()      gradient → starfield (90, twinkling) → comets (sparse, dim) → green nebula
@@ -471,7 +471,7 @@ projectY(mult, maxY, padding, chartH) {
 }
 ```
 
-The `1.45` exponent gives the project's shallow-then-steep arc. **`getRocketCoords`, `drawCurve`,
+The `1.45` exponent gives Gamdom's shallow-then-steep arc. **`getRocketCoords`, `drawCurve`,
 `drawGrid`, and `drawCashoutMarkers` all call it.** When this projection was duplicated inline
 the orb, the curve, the gridlines and the markers each drifted apart. Never re-derive it.
 
@@ -498,9 +498,9 @@ map with `coords.maxX` / `coords.maxY`.
 
 ## 9. Visual reference — the shared look
 
-Deltas found during side-by-side review of the visual target and the local build, and closed:
+Deltas found by screenshotting `gamdom.com/crash` next to the local build, and closed:
 
-| Element | Visual target | Implemented |
+| Element | Gamdom | Implemented |
 |---|---|---|
 | Curve head | luminous white-core orb, heavy bloom | `drawOrbHead()` |
 | Curve shape | shallow → steep arc | `pow(linear, 1.45)` |
@@ -510,13 +510,13 @@ Deltas found during side-by-side review of the visual target and the local build
 | History pills | `x1.39`, red `<2×` / green `≥2×` | `multToneCrash` + `fmtMultX` |
 | Multiplier readout | top-left, ~64px, weight 900, mint glow | `drawMultiplierText()` |
 
-Palette (`css/casino.css`): mint `#00ff86`, secondary green `#10b981`, dark `#131a22`,
+Palette (`css/gamdom.css`): mint `#00ff86`, secondary green `#10b981`, dark `#131a22`,
 surface `#0f151b`, dim text `#45515c`, red `#ef4444`, gold `#fbbf24`.
 Fonts: Inter (UI) + Roboto Mono (numerals) via Google Fonts.
 
-**If asked to improve visuals: screenshot the current build first and list concrete deltas
-against the intended project reference.** A comparison table with zero deltas is not a
-comparison — that mistake got the work rejected twice here.
+**If asked to improve visuals: screenshot the live Gamdom page first and list concrete
+deltas.** A comparison table with zero deltas is not a comparison — that mistake got the
+work rejected twice here.
 
 ---
 
@@ -791,7 +791,7 @@ frame-rate profiling under load.
    control values it needs to `cheatCtx()` in `app.js` and to `peekSignature()`. Use
    `c.nextNonce` for an upcoming round and the live instance for one in flight. If the model
    is taller than mines, re-check the two clipping media queries (§6).
-5. Style in `styles.css`; use the `css/casino.css` tokens for the shared casino theme,
+5. Style in `styles.css`; use the `css/gamdom.css` tokens for anything Gamdom-flavoured,
    and add the card's `.ca-*` keyframes to `css/lobby.css`.
 6. Verify: syntax loop, then drive it through `window.plinko` in the browser and confirm
    `balance === START_BALANCE + adjusted − wagered + returned` still holds. For the peek,
@@ -964,7 +964,7 @@ moment the layout stacks, the bet button sits below the stage (measured y=1308 o
    you cannot see it. `.controls { backdrop-filter: none }` is in the same block for that
    reason (and is the cheapest perf win on a phone GPU).
 2. **Everything anchored to the bottom must clear it**: toasts, the cheat panel dock
-   (`css/casino.css`) and the in-round action dock below. Add a new bottom-anchored element
+   (css/gamdom.css) and the in-round action dock below. Add a new bottom-anchored element
    and it must join that list.
 
 ### The in-round action dock — the bet bar alone was not enough

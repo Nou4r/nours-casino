@@ -747,6 +747,11 @@ export class KenoGame {
     this.dirty = true;
   }
 
+  /** Repaint immediately with the active shared palette. */
+  refreshTheme() {
+    this.dirty = true;
+  }
+
   /**
    * Cache every derived measurement for the live canvas size. Resize-time only —
    * nothing in here may run per frame.

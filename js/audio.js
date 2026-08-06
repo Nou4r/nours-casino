@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'plinko.audio';
-const UNLOCK_SAMPLE = new URL('../assets/audio/roulette/click.wav', import.meta.url).href;
+const UNLOCK_SAMPLE = new URL('../assets/gamdom/roulette/click.wav', import.meta.url).href;
 
-const assetUrl = (path) => new URL(`../assets/audio/${path}`, import.meta.url).href;
+const assetUrl = (path) => new URL(`../assets/gamdom/${path}`, import.meta.url).href;
 
 const FILES = Object.freeze({
   blackjack: Object.freeze({

@@ -42,13 +42,26 @@ export const isNative = !!(globalThis.Capacitor?.isNativePlatform?.());
 
 const SPLASH_FADE_MS   = 250;
 const FIRST_PAINT_MS   = 1000;            // watchdog: a splash that never hides reads as a hang
-const STATUS_BAR_COLOR = '#0f172a';       // app chrome; Android only, iOS throws on setBackgroundColor
+const STATUS_BAR_COLORS = Object.freeze({ default: '#0f172a', oled: '#000000' });
+const statusBarColor = () => STATUS_BAR_COLORS[document.documentElement?.dataset?.theme] || STATUS_BAR_COLORS.default;
 
 /** Shared sink for swallowed rejections — one closure instead of one per call. */
 const noop = () => {};
 
 /** @returns {Record<string, any> | undefined} The plugin registry, if any. */
 const plugins = () => globalThis.Capacitor?.Plugins;
+
+/** Keep the Android status-bar surface in lockstep with the active appearance. */
+async function applyStatusBarTheme(platform) {
+  if (platform !== 'android') return;
+  const statusBar = plugins()?.StatusBar;
+  if (!statusBar) return;
+  const oled = document.documentElement?.dataset?.theme === 'oled';
+  await statusBar.setBackgroundColor({ color: statusBarColor() });
+  // Preserve the existing native icon style for Default; OLED needs light
+  // status-bar content so icons remain visible against true black.
+  await statusBar.setStyle({ style: oled ? 'LIGHT' : 'DARK' });
+}
 
 /**
  * Feedback flavour → Haptics call. `impact` is a physical thump (Light for a
@@ -113,16 +126,10 @@ export async function initNative() {
   const platform = globalThis.Capacitor?.getPlatform?.() || 'native';
   document.documentElement.dataset.native = platform;
 
-  /* Fonts are handled at BUILD time, not here — see scripts/build-www.mjs.
-
-     Injecting `css/fonts.css` from JS was tried and rejected: `index.html`'s
-     Google Fonts `<link rel="stylesheet">` is render-blocking, and a packaged
-     WebView with no network (or behind a captive portal) stalls it for the whole
-     DNS/connect timeout. Script execution also waits on pending stylesheets, so
-     `initNative()` itself would not run in time to undo it — and because
-     `launchAutoHide` is false and the splash hide is gated on `afterFirstPaint()`,
-     that reintroduces the never-hiding splash through a second door. The link has
-     to be gone before the document is parsed, which only the build can do. */
+  /* Fonts are linked as local, render-blocking document resources in every
+     target. The build verifies those files before packaging, so native startup
+     never depends on DNS, a captive portal, or JavaScript injecting typography
+     after first paint. See scripts/build-www.mjs. */
 
 
   /* Opaque dark chrome sitting above the WebView rather than behind it. Verified
@@ -132,13 +139,16 @@ export async function initNative() {
   try {
     const statusBar = plugins()?.StatusBar;
     if (statusBar) {
-      await statusBar.setStyle({ style: 'DARK' });
-      if (platform === 'android') await statusBar.setBackgroundColor({ color: STATUS_BAR_COLOR });
+      await applyStatusBarTheme(platform);
       await statusBar.setOverlaysWebView({ overlay: false });
     }
   } catch (err) {
     console.warn('[native] status bar unavailable', err);
   }
+
+  globalThis.addEventListener('nours:themechange', () => {
+    applyStatusBarTheme(platform).catch(noop);
+  });
 
   /* Hold the splash until a real frame has painted, else the player gets a
      flash of unpainted canvas between the splash and the lobby. */
@@ -177,6 +187,7 @@ function onBackButton() {
   const api = globalThis.plinko;
   const modal = api?.openModals?.()?.pop();   // document order, so last == topmost
   if (modal) { api.closeModal?.(modal); return; }
+  if (api?.closeTransientOverlay?.()) return;
   if (document.body.dataset.route === 'game') { api?.showLobby?.(); return; }
   plugins()?.App?.exitApp?.();
 }

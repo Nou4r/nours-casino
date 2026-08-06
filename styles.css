@@ -5,18 +5,33 @@
 /* ------------------------------- Tokens -------------------------------- */
 :root {
   /* surfaces */
-  --bg:            #0f172a;
-  --bg-deep:       #0a1120;
-  --panel:         #181f2a;
-  --panel-2:       #1d2635;
-  --panel-3:       #232d3f;
-  --line:          rgba(148, 163, 184, .12);
-  --line-soft:     rgba(148, 163, 184, .07);
+  --bg:            #0b1422;
+  --bg-deep:       #070d17;
+  --panel:         #111b29;
+  --panel-2:       #162131;
+  --panel-3:       #1b283a;
+  --line:          rgba(148, 163, 184, .17);
+  --line-soft:     rgba(148, 163, 184, .10);
 
   /* text */
   --text:          #e9eef8;
-  --text-dim:      #97a3b8;
-  --text-faint:    #64748b;
+  --text-dim:      #a8b4c7;
+  --text-faint:    #7f8da4;
+
+  /* DOM-rendered game surfaces that mirror the shared Canvas palette */
+  --canvas-stage-bg:       #070b12;
+  --canvas-stage-edge:     rgba(255, 255, 255, .07);
+  --canvas-panel-top:      rgba(30, 41, 59, .72);
+  --canvas-panel-bottom:   rgba(15, 21, 27, .72);
+  --canvas-panel-edge:     rgba(255, 255, 255, .09);
+  --canvas-panel-filter:   blur(6px);
+  --canvas-pill-bg:        rgba(30, 41, 59, .70);
+  --canvas-pill-edge:      rgba(255, 255, 255, .07);
+  --canvas-game-text:      #e2e8f0;
+  --canvas-game-label:     #64748b;
+  --canvas-game-ticker:    #f1f5f9;
+  --canvas-game-rolling:   #cbd5e1;
+  --canvas-game-pill-text: #94a3b8;
 
   /* brand */
   --green:         #10b981;
@@ -32,9 +47,9 @@
 
   /* geometry */
   --r-sm:  8px;
-  --r-md:  12px;
-  --r-lg:  16px;
-  --r-xl:  22px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  18px;
   --pad:   16px;
   --topbar-h: 66px;
   --sidebar-w: 328px;
@@ -44,9 +59,9 @@
   --spring: cubic-bezier(.34, 1.46, .48, 1);
 
   /* effects */
-  --glow-green: 0 0 0 1px rgba(16,185,129,.34), 0 8px 26px -8px rgba(16,185,129,.55);
-  --glass: linear-gradient(160deg, rgba(255,255,255,.055), rgba(255,255,255,.012) 46%, rgba(255,255,255,0));
-  --shadow-card: 0 18px 40px -22px rgba(0,0,0,.9), 0 2px 0 0 rgba(255,255,255,.03) inset;
+  --glow-green: 0 0 0 1px rgba(16,185,129,.32), 0 10px 24px -14px rgba(16,185,129,.62);
+  --glass: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0));
+  --shadow-card: 0 16px 34px -24px rgba(0,0,0,.92), 0 1px 0 rgba(255,255,255,.025) inset;
 }
 
 /* ------------------------------- Reset --------------------------------- */
@@ -587,7 +602,7 @@ select.input option { background: var(--panel-2); color: var(--text); }
 .range {
   --pct: 100%;
   appearance: none; -webkit-appearance: none;
-  width: 100%; height: 22px;
+  width: 100%; height: 24px;
   background: transparent;
   cursor: pointer;
 }
@@ -1209,7 +1224,9 @@ select.input option { background: var(--panel-2); color: var(--text); }
     border-radius: var(--r-xl) var(--r-xl) 0 0;
     background: rgba(21, 28, 40, .985);
     box-shadow: 0 -24px 60px -20px rgba(0, 0, 0, .95);
-    overflow: visible;
+    max-height: calc(100svh - var(--topbar-h) - 8px);
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     transform: translateY(110%);
     visibility: hidden;
@@ -1230,6 +1247,11 @@ select.input option { background: var(--panel-2); color: var(--text); }
     transform: none;
     visibility: visible;
     transition-delay: 0s;
+  }
+  body[data-route="game"] .topbar__actions {
+    bottom: var(--bet-bar-h);
+    max-height: calc(100svh - var(--topbar-h) - var(--bet-bar-h) - 8px);
+    padding-bottom: 14px;
   }
   .topbar__actions .btn {
     flex-direction: column;
@@ -1445,4 +1467,574 @@ select.input option { background: var(--panel-2); color: var(--text); }
     --text-faint: #94a3b8;
   }
   .btn, .input, .segmented { border-color: rgba(255, 255, 255, 0.35) !important; }
+}
+
+/* ========================================================================
+   Design excellence pass — structural ergonomics
+   The compact game shell keeps the board and wager action visible while the
+   original controls become one accessible sheet. No form state is duplicated.
+   ======================================================================== */
+
+.skip-link {
+  position: fixed;
+  inset-block-start: max(8px, env(safe-area-inset-top));
+  inset-inline-start: max(8px, env(safe-area-inset-left));
+  z-index: 220;
+  max-width: calc(100vw - 16px);
+  padding: 10px 14px;
+  border: 1px solid var(--green-hi);
+  border-radius: var(--r-sm);
+  background: var(--bg-deep);
+  color: var(--text);
+  font-weight: 800;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .5);
+  transform: translateY(calc(-100% - 18px));
+  transition: transform .16s var(--ease);
+}
+.skip-link:focus { transform: none; }
+.skip-link--lobby { display: none; }
+body[data-route="lobby"] .skip-link--lobby,
+body[data-route="game"] .skip-link--game { display: inline-flex; }
+
+.controls-sheet-content { display: contents; }
+.controls-sheet-head,
+.phone-bet-summary,
+.bet-controls-scrim { display: none; }
+.phone-playbar { display: contents; }
+
+/* A landscape tablet has room for the original console composition. The old
+   stacked rule fired at 1080px and made the wager panel a scroll away at
+   1024×768, despite more than 700px remaining for the board. */
+@media (min-width: 961px) and (max-width: 1080px) {
+  .layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+  .controls {
+    position: sticky;
+    top: calc(var(--topbar-h) + 12px);
+    width: auto;
+    order: initial;
+  }
+  .board { width: auto; order: initial; }
+  .controls__scroll { display: flex; grid-template-columns: none; }
+  .board-stage {
+    aspect-ratio: auto;
+    height: min(68svh, 600px);
+    min-height: 430px;
+    max-height: none;
+  }
+  body[data-route="game"] .phone-playbar .btn--drop,
+  body[data-route="game"] .btn--drop {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    border-width: 1px;
+    border-radius: 10px;
+    padding: 13px 18px;
+  }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+  body[data-route="game"] .layout,
+  body[data-route="game"] .layout:has(.game-ctrl-pane.is-active .pane-actions) {
+    padding-bottom: 18px;
+  }
+  body[data-route="game"] .toasts,
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .toasts { bottom: 18px; }
+}
+
+/* The existing wager panel becomes a true control sheet through the compact
+   app-shell regime, including phone landscape and portrait tablets. */
+@media (max-width: 960px) {
+  :root { --bet-bar-h: calc(70px + env(safe-area-inset-bottom)); }
+
+  .controls {
+    position: fixed;
+    inset-inline: 0;
+    top: auto;
+    bottom: -100svh;
+    z-index: 92;
+    width: 100%;
+    max-width: none;
+    max-height: calc(100svh - var(--topbar-h) - var(--bet-bar-h) - 8px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+    transition: bottom .28s var(--ease);
+  }
+  body.bet-controls-open .controls { bottom: var(--bet-bar-h); }
+
+  .controls-sheet-content {
+    display: flex;
+    flex-direction: column;
+    max-height: inherit;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-width: 1px 0 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    background: rgba(16, 24, 37, .99);
+    box-shadow: 0 -24px 64px -24px rgba(0, 0, 0, .95);
+    pointer-events: none;
+  }
+  body.bet-controls-open .controls-sheet-content { pointer-events: auto; }
+
+  .controls-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex: none;
+    min-height: 66px;
+    padding: 10px max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--line);
+  }
+  .controls-sheet-head h2 {
+    margin-top: 2px;
+    font-size: 18px;
+    line-height: 1.2;
+    letter-spacing: -.015em;
+  }
+  .controls-sheet-eyebrow {
+    display: block;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .controls-sheet-head .btn { min-width: 44px; min-height: 44px; }
+
+  .controls > .controls-sheet-content > .segmented {
+    flex: none;
+    margin: 16px max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left));
+  }
+  .controls__scroll {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px max(14px, env(safe-area-inset-right)) 24px max(14px, env(safe-area-inset-left));
+    gap: 16px;
+  }
+
+  .phone-playbar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 80;
+    display: grid;
+    grid-template-columns: minmax(96px, 1fr) minmax(190px, 2.35fr);
+    gap: 8px;
+    min-height: var(--bet-bar-h);
+    padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    background: rgba(8, 14, 24, .985);
+    box-shadow: 0 -18px 46px -24px rgba(0, 0, 0, .95);
+  }
+  .phone-bet-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 7px 9px;
+    border: 1px solid rgba(0, 255, 134, .45);
+    border-radius: 10px;
+    background: rgba(0, 255, 134, .055);
+    color: var(--text);
+    text-align: left;
+  }
+  .phone-bet-summary .ico { color: var(--mint, var(--green-hi)); }
+  .phone-bet-summary__copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.15;
+  }
+  .phone-bet-summary__copy strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Roboto Mono', ui-monospace, monospace;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .phone-bet-summary__copy small {
+    overflow: hidden;
+    margin-top: 3px;
+    color: var(--text-dim);
+    font-size: 9.5px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .phone-bet-summary[aria-expanded="true"] {
+    border-color: var(--mint, var(--green-hi));
+    background: rgba(0, 255, 134, .11);
+  }
+
+  body[data-route="game"] .phone-playbar .btn--drop,
+  body[data-route="game"] .btn--drop {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 52px;
+    padding: 10px 12px;
+    border-width: 1px;
+    border-radius: 10px;
+  }
+
+  .bet-controls-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 87;
+    background: rgba(4, 8, 16, .68);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .24s var(--ease), visibility 0s linear .24s;
+  }
+  body.bet-controls-open .bet-controls-scrim {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  body[data-route="game"] .layout { padding-bottom: calc(var(--bet-bar-h) + 14px); }
+  body[data-route="game"] .toasts { bottom: calc(var(--bet-bar-h) + 14px); }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .layout {
+    padding-bottom: calc(var(--bet-bar-h) + 124px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .toasts {
+    bottom: calc(var(--bet-bar-h) + 128px);
+  }
+
+  /* While the control sheet is open, decision controls belong to the sheet;
+     their closed-state dock must not be duplicated above the play bar. */
+  body.bet-controls-open[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+  body.bet-controls-open[data-route="game"] .game-ctrl-pane.is-active .pane-actions .chip-row { margin-top: 0; }
+  .hotkeys { display: none; }
+}
+
+@media (max-width: 720px) {
+  .board-stage { height: calc(100svh - var(--topbar-h) - 170px); }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 238px);
+  }
+  body[data-route="game"]:has(#pane-ctrl-hilo.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 290px);
+  }
+}
+
+@media (max-width: 380px) {
+  .phone-playbar {
+    grid-template-columns: minmax(92px, .95fr) minmax(0, 2.1fr);
+    gap: 6px;
+    padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right));
+  }
+  .phone-bet-summary { gap: 6px; padding-inline: 7px; }
+  .phone-bet-summary .ico { display: none; }
+  .phone-bet-summary__copy strong { font-size: 12.5px; }
+  .phone-bet-summary__copy small { font-size: 9px; }
+}
+
+@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape) {
+  .phone-playbar { padding-block: 6px max(6px, env(safe-area-inset-bottom)); }
+  body[data-route="game"] .phone-playbar .btn--drop { min-height: 46px; }
+  .board-stage { height: calc(100svh - var(--topbar-h) - 176px); }
+}
+
+@media (max-width: 960px) {
+  .phone-playbar { pointer-events: auto; }
+}
+
+/* ========================================================================
+   Design excellence pass — visual system
+   A flatter precision-arcade shell keeps mint for wagering and state, while
+   neutral surfaces frame each game's own colour. These rules intentionally
+   consolidate earlier decorative treatments rather than introducing a second
+   component system.
+   ======================================================================== */
+
+body {
+  background:
+    radial-gradient(900px 520px at 12% -18%, rgba(0, 255, 134, .055), transparent 66%),
+    radial-gradient(820px 500px at 90% -14%, rgba(56, 189, 248, .045), transparent 68%),
+    var(--bg);
+  background-attachment: scroll;
+}
+
+.topbar {
+  background: rgba(8, 15, 27, .97);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom-color: rgba(148, 163, 184, .15);
+  box-shadow: 0 10px 28px -26px rgba(0, 0, 0, .95);
+}
+
+.wallet,
+.panel,
+.history-rail,
+.board-footer,
+.modal__card,
+.toast {
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.wallet {
+  background-color: #111b29;
+  border-color: rgba(148, 163, 184, .18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+.panel {
+  background-color: #111b29;
+  border-color: rgba(148, 163, 184, .16);
+}
+
+.btn {
+  border-color: rgba(148, 163, 184, .16);
+  box-shadow: none;
+}
+.btn:hover:not(:disabled) {
+  background: #1a2738;
+  border-color: rgba(148, 163, 184, .30);
+}
+.btn--ghost { --btn-bg: rgba(148, 163, 184, .045); }
+.btn--ghost:hover:not(:disabled) { background: rgba(148, 163, 184, .10); }
+.btn--mint {
+  --btn-bg: linear-gradient(180deg, #23dda0, #12b981);
+  --btn-fg: #041a13;
+  border-color: rgba(52, 211, 153, .50);
+  box-shadow: 0 10px 22px -17px rgba(0, 255, 134, .9);
+}
+.btn--mint:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow: 0 12px 24px -17px rgba(0, 255, 134, .95);
+}
+
+.btn--drop,
+.btn--drop:hover,
+.btn--drop:hover:not(:disabled) {
+  background: linear-gradient(180deg, #12e899, #09c77d) !important;
+  border-color: rgba(57, 255, 175, .42) !important;
+  box-shadow: 0 12px 28px -18px rgba(0, 255, 134, .95) !important;
+  filter: none;
+}
+.btn--drop::after { display: none; }
+.btn--drop:active:not(:disabled) {
+  transform: translateY(1px) scale(.992);
+  box-shadow: 0 5px 16px -13px rgba(0, 255, 134, .9) !important;
+}
+
+.segmented {
+  background: #0b1422;
+  border-color: rgba(148, 163, 184, .13);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .018);
+}
+.segmented__thumb {
+  background: #172536;
+  border-color: rgba(148, 163, 184, .24);
+  box-shadow: none;
+}
+.segmented--mode .segmented__thumb {
+  background: rgba(0, 255, 134, .11);
+  border-color: rgba(0, 255, 134, .42);
+  box-shadow: inset 3px 0 0 var(--mint);
+}
+.segmented--mode .segmented__btn.is-active { color: #dffcef; }
+.segmented--risk[data-risk="low"] .segmented__thumb {
+  background: rgba(16, 185, 129, .11);
+  border-color: rgba(16, 185, 129, .38);
+  box-shadow: inset 0 -2px 0 var(--green-hi);
+}
+.segmented--risk[data-risk="medium"] .segmented__thumb {
+  background: rgba(251, 191, 36, .10);
+  border-color: rgba(251, 191, 36, .38);
+  box-shadow: inset 0 -2px 0 var(--gold);
+}
+.segmented--risk[data-risk="high"] .segmented__thumb {
+  background: rgba(239, 68, 68, .10);
+  border-color: rgba(239, 68, 68, .38);
+  box-shadow: inset 0 -2px 0 var(--red-hi);
+}
+
+.input {
+  background: #0a1320;
+  border-color: rgba(148, 163, 184, .16);
+}
+.input:hover { border-color: rgba(148, 163, 184, .30); }
+.input:focus {
+  background: #09121e;
+  border-color: rgba(0, 255, 134, .62);
+  box-shadow: 0 0 0 3px rgba(0, 255, 134, .11);
+}
+.chip-btn { background: #172334; border-color: rgba(148, 163, 184, .12); }
+.chip-btn:hover:not(:disabled) {
+  background: rgba(0, 255, 134, .10);
+  border-color: rgba(0, 255, 134, .34);
+}
+
+.board-stage {
+  border-color: rgba(148, 163, 184, .14);
+  box-shadow: 0 24px 52px -34px rgba(0, 0, 0, .96), inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+.history-rail,
+.board-footer {
+  background-color: #121d2b;
+  border-color: rgba(148, 163, 184, .15);
+}
+.board-footer__stat--fair b { color: #b9a7ff; }
+
+.game-tab.is-active {
+  background: rgba(0, 255, 134, .12);
+  border-color: rgba(0, 255, 134, .38);
+  color: #dffcef;
+  box-shadow: inset 0 -2px 0 var(--mint);
+}
+.game-tab:hover:not(.is-active) { transform: none; background: rgba(148, 163, 184, .06); }
+
+.live-players-section {
+  background: #0d1723;
+  border-color: rgba(148, 163, 184, .14);
+}
+.live-players-table tbody tr:first-child { background: rgba(0, 255, 134, .045); }
+
+@media (min-width: 430px) and (max-width: 960px) {
+  .brand__text { display: flex; }
+  .brand__text b { font-size: 11.5px; }
+  .brand__text i { display: block; font-size: 8px; letter-spacing: .32em; margin-right: -.32em; }
+}
+
+@media (max-width: 960px) {
+  .topbar__actions,
+  .controls-sheet-content,
+  .phone-playbar {
+    background-color: #0c1522;
+  }
+  .topbar__actions { background: #0f1927; }
+  .phone-playbar {
+    border-top-color: rgba(148, 163, 184, .18);
+    box-shadow: 0 -18px 38px -28px rgba(0, 0, 0, .96);
+  }
+  .phone-bet-summary {
+    border-color: rgba(148, 163, 184, .20);
+    background: #111d2b;
+  }
+  .phone-bet-summary[aria-expanded="true"] {
+    border-color: rgba(0, 255, 134, .55);
+    background: rgba(0, 255, 134, .08);
+  }
+  .controls-sheet-content {
+    border-color: rgba(148, 163, 184, .17);
+    box-shadow: 0 -26px 54px -28px rgba(0, 0, 0, .98);
+  }
+}
+
+
+/* ========================================================================
+   Design excellence pass — truthful decision docks
+   Idle round controls remain in the sheet for orientation, but they do not
+   occupy a fixed mobile action band until at least one decision is available.
+   ======================================================================== */
+@media (max-width: 960px) {
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions:not(:has(button:not(:disabled))) {
+    display: none;
+  }
+
+  /* Earlier structural rules reserve dock space whenever the pane contains an
+     action group. Reset that reservation, then add it only for a live action. */
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .layout {
+    padding-bottom: calc(var(--bet-bar-h) + 14px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .toasts {
+    bottom: calc(var(--bet-bar-h) + 14px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions button:not(:disabled)) .layout {
+    padding-bottom: calc(var(--bet-bar-h) + 124px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions button:not(:disabled)) .toasts {
+    bottom: calc(var(--bet-bar-h) + 128px);
+  }
+
+  /* Opening wager setup deliberately returns the action group to normal sheet
+     flow, including its disabled orientation state. */
+  body.bet-controls-open[data-route="game"] .game-ctrl-pane.is-active .pane-actions {
+    display: flex;
+  }
+}
+
+@media (max-width: 720px) {
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 170px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions button:not(:disabled)) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 238px);
+  }
+  body[data-route="game"]:has(#pane-ctrl-hilo.is-active .pane-actions button:not(:disabled)) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 290px);
+  }
+}
+
+@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape) {
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 176px);
+  }
+  body[data-route="game"]:has(.game-ctrl-pane.is-active .pane-actions button:not(:disabled)) .board-stage {
+    height: calc(100svh - var(--topbar-h) - 238px);
+  }
+}
+
+@media (max-width: 960px) {
+  /* The closed wager sheet deliberately ignores pointer input, but live decision
+     controls are promoted out of it as a fixed dock. Restore hit testing on the
+     promoted subtree so the visible Higher/Cash Out/Hit controls are not merely
+     decorative above the board. */
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions:has(button:not(:disabled)) {
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 960px) {
+  /* Visibility, rather than inert on the shared ancestor, removes closed sheet
+     fields from focus and accessibility traversal while allowing the original
+     live action subtree to be surfaced as the fixed decision dock. */
+  .controls-sheet-content { visibility: hidden; }
+  body.bet-controls-open .controls-sheet-content { visibility: visible; }
+  body[data-route="game"] .game-ctrl-pane.is-active .pane-actions:has(button:not(:disabled)) {
+    visibility: visible;
+  }
 }

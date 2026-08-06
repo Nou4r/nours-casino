@@ -13,7 +13,7 @@
  * `www/` is generated and gitignored. Never hand-edit it — the next build wipes
  * it without warning. The repo root is the source of truth.
  */
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, copyFileSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,9 +21,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'www');
 
 /**
- * What ships. `optional: true` means "skip silently if absent" — `fonts/` is
- * genuinely optional (the UI falls back to system stacks), so a missing font
- * directory is a valid build, not an error.
+ * What ships. Local fonts are required because the source document preloads and
+ * references them directly; allowing a missing directory would produce failed
+ * requests and a visually inconsistent native bundle.
  */
 const SOURCES = [
   { path: 'index.html', optional: false },
@@ -31,7 +31,7 @@ const SOURCES = [
   { path: 'css', optional: false },
   { path: 'js', optional: false },
   { path: 'assets', optional: false },
-  { path: 'fonts', optional: true },
+  { path: 'fonts', optional: false },
 ];
 
 /**
@@ -92,62 +92,14 @@ function copyInto(rel) {
 }
 
 /**
- * Swaps the Google Fonts CDN for the vendored faces in the PACKAGED copy only.
- *
- * The repo root keeps its `fonts.googleapis.com` link, because that is what
- * Cloudflare serves and a CDN is a perfectly good answer on the open web. Inside
- * an APK/IPA it is the wrong answer twice over:
- *
- *   1. A packaged WebView may have no network, so the faces never arrive and the
- *      whole UI silently drops to a system stack.
- *   2. Worse, `<link rel="stylesheet">` is RENDER-BLOCKING. Offline — or behind a
- *      captive portal — that request stalls for the full DNS/connect timeout,
- *      first paint never happens, and because `capacitor.config.js` sets
- *      `launchAutoHide: false` with the splash hide gated on the first painted
- *      frame, the app hangs on the splash screen. Deleting the tag at build time
- *      is the only fix that lands before the document is parsed; doing it from JS
- *      is too late, since script execution itself waits on pending stylesheets.
- *
- * Fails loudly rather than shipping a silently font-less bundle.
+ * Verifies that the packaged copy keeps the same self-hosted font contract as
+ * the browser source. Fails loudly rather than shipping a font-less bundle or
+ * reintroducing a render-blocking third-party stylesheet.
  *
  * @returns {void}
  */
-function vendorFonts() {
+function verifyLocalFonts() {
   const indexPath = join(OUT, 'index.html');
-  const original = readFileSync(indexPath, 'utf8');
-
-  // Drop the preconnects and the stylesheet, whatever order they appear in.
-  let html = original.replace(
-    /[ \t]*<link\b[^>]*(?:fonts\.googleapis\.com|fonts\.gstatic\.com)[^>]*>\r?\n?/g,
-    '',
-  );
-  const strippedCdn = html !== original;
-
-  const alreadyLinked = /<link\b[^>]*href="css\/fonts\.css"/.test(html);
-  if (!alreadyLinked) {
-    // First stylesheet in the document, so `@font-face` is known before any rule
-    // that uses the families.
-    const inject = [
-      '<link rel="preload" as="font" type="font/woff2" href="fonts/inter-latin.woff2" crossorigin />',
-      '<link rel="preload" as="font" type="font/woff2" href="fonts/roboto-mono-latin.woff2" crossorigin />',
-      '<link rel="stylesheet" href="css/fonts.css" />',
-      '',
-    ].join('\n');
-
-    const anchor = /<link\s+rel="stylesheet"/;
-    if (!anchor.test(html)) {
-      throw new Error('no stylesheet link in index.html to anchor css/fonts.css against');
-    }
-    html = html.replace(anchor, () => `${inject}<link rel="stylesheet"`);
-  }
-
-  if (html !== original) writeFileSync(indexPath, html);
-
-  /* Assert the OUTCOME, not the edit. Checking "did I find the CDN tag?" would
-     break the day the root stops using a CDN; checking the shipped file cannot.
-     Loud on failure by design — a silently font-less or still-CDN-linked bundle
-     is precisely the class of bug that hides until someone runs the app on a
-     plane. */
   const shipped = readFileSync(indexPath, 'utf8');
   const problems = [];
   if (/fonts\.(googleapis|gstatic)\.com/.test(shipped)) problems.push('a CDN font reference survived');
@@ -157,12 +109,31 @@ function vendorFonts() {
     if (!existsSync(join(OUT, 'fonts', f))) problems.push(`fonts/${f} is missing`);
   }
   if (problems.length) throw new Error(`packaged fonts are broken — ${problems.join('; ')}`);
+  console.log('build-www: self-hosted fonts verified');
+}
 
-  console.log(
-    strippedCdn
-      ? 'build-www: fonts vendored (CDN links stripped from the packaged index.html)'
-      : 'build-www: fonts vendored (root had no CDN links)',
-  );
+/**
+ * Verifies the no-flash appearance contract in the packaged web directory.
+ * The classic bootstrap must be external (CSP-safe), parser-blocking and placed
+ * before the first stylesheet so a persisted OLED choice wins first paint.
+ *
+ * @returns {void}
+ */
+function verifyThemeBootstrap() {
+  const indexPath = join(OUT, 'index.html');
+  const shipped = readFileSync(indexPath, 'utf8');
+  const bootstrapAt = shipped.indexOf('<script src="js/theme-bootstrap.js"></script>');
+  const stylesheetAt = shipped.indexOf('<link rel="stylesheet"');
+  const problems = [];
+
+  if (bootstrapAt < 0) problems.push('js/theme-bootstrap.js is not linked');
+  if (stylesheetAt >= 0 && bootstrapAt > stylesheetAt) problems.push('theme bootstrap runs after a stylesheet');
+  if (!existsSync(join(OUT, 'js', 'theme-bootstrap.js'))) problems.push('js/theme-bootstrap.js was not copied');
+  if (!existsSync(join(OUT, 'js', 'theme.js'))) problems.push('js/theme.js was not copied');
+  if (!existsSync(join(OUT, 'css', 'themes.css'))) problems.push('css/themes.css was not copied');
+  if (!/data-theme="default"/.test(shipped)) problems.push('the root theme fallback is missing');
+  if (problems.length) throw new Error(`packaged appearance theme is broken — ${problems.join('; ')}`);
+  console.log('build-www: pre-paint appearance bootstrap verified');
 }
 
 try {
@@ -183,7 +154,8 @@ try {
     throw new Error('www/index.html was not produced — refusing to report success');
   }
 
-  vendorFonts();
+  verifyLocalFonts();
+  verifyThemeBootstrap();
 
   const kib = (byteCount / 1024).toFixed(1);
   console.log(`build-www: ${fileCount} files, ${byteCount} bytes (${kib} KiB) -> ${relative(ROOT, OUT)}${sep}`);

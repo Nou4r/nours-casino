@@ -472,7 +472,15 @@ export class PlinkoPhysics {
     this.balls.length = 0;
   }
 
-  /** Idempotent: exits cheaply when the measured box and DPR are unchanged. */
+  /** Rebuild cached theme-dependent sprites, gradients and backdrop. */
+  refreshTheme() {
+    if (!this.ctx) return;
+    if (this.layout) this._buildSprites();
+    this._stageGrad = this._stageGradients(this.ctx);
+    this._buildBackdrop();
+    this.start();
+  }
+
   resize() {
     if (this._destroyed) return;
     this._layout(false);

@@ -4,6 +4,7 @@
  */
 
 import { hmacSha256Hex } from '../math/provably-fair.js';
+import * as T from '../render/theme.js';
 
 /**
  * Calculate provably fair crash outcome from seed triple or direct float/number.
@@ -504,7 +505,7 @@ export class CrashGame {
     this.comets = [];
     this._cometTimer = 0;
 
-    // Spawn deterministic live cashout markers for visual interest (casino look)
+    // Spawn deterministic live cashout markers for visual interest (Gamdom look)
     if (this.crashPoint >= 1.35) {
       const marks = Math.min(3, Math.max(1, Math.floor(this.crashPoint / 1.6)));
       for (let i = 1; i <= marks; i++) {
@@ -753,7 +754,7 @@ export class CrashGame {
   }
 
   /**
-   * Curved rocket path point at time t. Crash style: starts shallow, steepens with
+   * Curved rocket path point at time t. Gamdom-style: starts shallow, steepens with
    * multiplier. Returns canvas coords for (t, mult) plus the live plot box.
    */
   getRocketCoords(t, mult) {
@@ -778,8 +779,8 @@ export class CrashGame {
     const h = this.height;
 
     const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-    bgGrad.addColorStop(0, '#070b12');
-    bgGrad.addColorStop(1, '#0d1420');
+    bgGrad.addColorStop(0, T.PALETTE.bgTop);
+    bgGrad.addColorStop(1, T.PALETTE.bgBottom);
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, w, h);
 
@@ -901,7 +902,7 @@ export class CrashGame {
   }
 
   /**
-   * Draw glowing orb head at curve tip, matching the reference style's white-core orb.
+   * Draw glowing orb head at curve tip, matching Gamdom's white-core orb.
    * @param {number} x
    * @param {number} y
    */
@@ -970,7 +971,7 @@ export class CrashGame {
       // avatar chip
       ctx.shadowColor = 'rgba(239,68,68,0.7)';
       ctx.shadowBlur = markR * 1.15;
-      ctx.fillStyle = '#1e293b';
+      ctx.fillStyle = T.PALETTE.slate;
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = Math.max(1, markR * 0.23);
       ctx.beginPath();
@@ -985,7 +986,7 @@ export class CrashGame {
       ctx.arc(mx, my, markR * 0.37, 0, Math.PI * 2);
       ctx.fill();
 
-      // Label block (mult + payout), crash style. Mono advance ~0.62em / Inter ~0.60em,
+      // Label block (mult + payout), Gamdom style. Mono advance ~0.62em / Inter ~0.60em,
       // so the block width is predictable without a measureText per marker per frame.
       const multTxt = `x${m.mult.toFixed(2)}`;
       const payTxt = `$${m.payout.toFixed(2)}`;
@@ -1032,8 +1033,8 @@ export class CrashGame {
 
     ctx.save();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+    ctx.strokeStyle = T.alpha(T.PALETTE.stageNeutral, 0.05);
+    ctx.fillStyle = T.alpha(T.PALETTE.textDim, 0.6);
     ctx.font = `${gridFont}px Roboto Mono, monospace`;
 
     // Horizontal grid lines (multipliers), thinned twice: the step ladder caps how many
@@ -1088,7 +1089,7 @@ export class CrashGame {
     }
 
     // Axes lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+    ctx.strokeStyle = T.alpha(T.PALETTE.stageNeutral, 0.10);
     ctx.lineWidth = 1;
     ctx.beginPath();
     // X axis
@@ -1289,7 +1290,7 @@ export class CrashGame {
     // Hairline under the band so the readout reads as its own row, not floating text.
     if (stacked) {
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+      ctx.strokeStyle = T.alpha(T.PALETTE.stageNeutral, 0.07);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(hero.x, plot.top - 0.5);
@@ -1316,10 +1317,10 @@ export class CrashGame {
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${hist.headFont}px Inter, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.fillStyle = T.alpha(T.PALETTE.textDim, 0.8);
     ctx.fillText('RECENT CRASHES', hist.x, headY);
     ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.42)';
+    ctx.fillStyle = T.alpha(T.PALETTE.textDim, 0.42);
     ctx.fillText(shown ? `LAST ${shown}` : 'NO ROUNDS YET', hist.x + hist.w, headY);
 
     const rowsTop = hist.top + hist.headFont * 1.3 + hist.padT;
@@ -1336,9 +1337,9 @@ export class CrashGame {
 
       if (val === undefined) {
         // Empty slots stay drawn: the strip reads as a filling reel, not dead space.
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.028)';
+        ctx.fillStyle = T.alpha(T.PALETTE.stageNeutral, 0.028);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.strokeStyle = T.alpha(T.PALETTE.stageNeutral, 0.05);
         ctx.lineWidth = 1;
         ctx.stroke();
         continue;

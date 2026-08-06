@@ -1,6 +1,6 @@
 /* =========================================================================
    Nour's Casino — Lobby
-   Loads after styles.css and css/casino.css, so it inherits their tokens
+   Loads after styles.css and css/gamdom.css, so it inherits their tokens
    (--mint --ink --rail --green --text --bg --bg-deep --gold --ease --spring)
    and wins plain-selector ties on source order alone. Nothing in this file
    is forced with an importance flag.
@@ -1353,6 +1353,10 @@ body[data-route="lobby"] #btn-home { display: none; }
   .lobby-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+@media (pointer: coarse) {
+  .lobby-filter { min-height: 44px; }
+}
+
 @media (max-width: 520px) {
   .lobby { padding-block: 4px calc(clamp(24px, 8vw, 44px) + env(safe-area-inset-bottom)); }
   .lobby-hero__title { letter-spacing: -.028em; }
@@ -1420,4 +1424,346 @@ body[data-route="lobby"] #btn-home { display: none; }
   #lobby .card-art--blackjack .ca-card--a { transform: rotate(-12deg); }
   #lobby .card-art--blackjack .ca-card--b { transform: none; }
   #lobby .card-art--blackjack .ca-card--c { transform: rotate(12deg); }
+}
+
+/* ========================================================================
+   Design excellence pass — precision originals catalog
+   The lobby is a game selector, not a campaign landing page: less ambient
+   decoration, faster access to the catalog, clearer metrics and quieter cards.
+   ======================================================================== */
+
+.lobby {
+  --lobby-pad: clamp(12px, 1.8vw, 24px);
+  --hair: rgba(148, 163, 184, .15);
+  --hair-hi: rgba(148, 163, 184, .25);
+  --card-r: 12px;
+  --card-surface: #0d1723;
+  --card-sheen: none;
+}
+
+.lobby::before {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, .085) 1px, transparent 0),
+    linear-gradient(90deg, rgba(0, 255, 134, .025), transparent 30%, transparent 70%, rgba(56, 189, 248, .02));
+  background-size: 28px 28px, 100% 100%;
+  -webkit-mask-image: linear-gradient(#000 0%, rgba(0,0,0,.65) 35%, transparent 78%);
+  mask-image: linear-gradient(#000 0%, rgba(0,0,0,.65) 35%, transparent 78%);
+}
+
+.lobby__orb { animation: none; will-change: auto; filter: blur(96px); opacity: .22; }
+.lobby__orb--a {
+  width: min(46vw, 560px);
+  top: -22vw;
+  left: -15vw;
+  background: radial-gradient(circle, rgba(0, 255, 134, .28), transparent 70%);
+}
+.lobby__orb--b {
+  width: min(36vw, 480px);
+  top: -10vw;
+  right: -14vw;
+  background: radial-gradient(circle, rgba(56, 189, 248, .18), transparent 72%);
+}
+.lobby__orb--c { display: none; }
+
+.lobby-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+  gap: clamp(24px, 4vw, 64px);
+  padding-block: clamp(24px, 3.2vw, 46px) clamp(20px, 2.5vw, 34px);
+}
+.lobby-hero__copy { gap: clamp(9px, 1.15vw, 15px); }
+
+.lobby-hero__eyebrow {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.lobby-hero__eyebrow::before {
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  animation: none;
+  box-shadow: none;
+}
+.lobby-hero__eyebrow span {
+  color: #9bb1a8;
+  font-size: 10px;
+  letter-spacing: .18em;
+}
+
+.lobby-hero__title {
+  max-width: 11ch;
+  font-size: clamp(34px, min(5.7vw, 8dvh), 64px);
+  line-height: .98;
+  letter-spacing: -.045em;
+  background: none;
+  color: #edf5f1;
+  -webkit-text-fill-color: currentColor;
+}
+.lobby-hero__title em {
+  background: none;
+  color: var(--mint);
+  -webkit-text-fill-color: currentColor;
+}
+.lobby-hero__sub {
+  max-width: 58ch;
+  font-size: clamp(13px, 1.05vw, 15px);
+  line-height: 1.55;
+  color: #a3b1c4;
+}
+.lobby-hero__actions { margin-top: 4px; }
+.lobby-hero__actions .btn--ghost { background: rgba(148, 163, 184, .045); }
+
+.lobby-stats {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  border-radius: 11px;
+  background: rgba(10, 18, 30, .72);
+}
+.lobby-stat {
+  min-width: 0;
+  padding: 10px 13px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.lobby-stat + .lobby-stat { border-inline-start: 1px solid var(--hair); }
+.lobby-stat dt { color: #7f8da4; }
+.lobby-stat dd { font-size: clamp(14px, 1.2vw, 17px); }
+
+.lobby-hero__art {
+  position: relative;
+  min-height: 250px;
+  border: 1px solid rgba(148, 163, 184, .13);
+  border-radius: 16px;
+  background:
+    linear-gradient(rgba(148, 163, 184, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, .035) 1px, transparent 1px),
+    radial-gradient(circle at 52% 45%, rgba(0, 255, 134, .07), transparent 52%),
+    rgba(8, 15, 27, .62);
+  background-size: 26px 26px, 26px 26px, 100% 100%, 100% 100%;
+  overflow: hidden;
+}
+.lobby-hero__art::after {
+  content: 'ORIGINALS / 11';
+  position: absolute;
+  inset: auto 14px 12px auto;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: #728198;
+}
+.hero-art { max-width: 270px; }
+.hero-art .ha-ring { opacity: .72; }
+.hero-art .ha-coin { animation-duration: 8s; }
+.hero-art .ha-spark { animation-duration: 5.5s; }
+
+.lobby > .lobby-toolbar {
+  top: var(--topbar-h);
+  gap: 14px;
+  padding-block: 11px;
+}
+.lobby-toolbar::before {
+  background: rgba(8, 15, 27, .965);
+  border-top: 1px solid rgba(148, 163, 184, .08);
+  border-bottom-color: rgba(148, 163, 184, .15);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.lobby-search { max-width: 420px; }
+.lobby-search .input {
+  min-height: 42px;
+  background: #09121f;
+  border-color: rgba(148, 163, 184, .18);
+  border-radius: 9px;
+}
+
+.lobby-filters {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 9px;
+  background: #0b1422;
+}
+.lobby-filter {
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8e9bb0;
+  box-shadow: none;
+}
+.lobby-filter:hover:not(.is-active) {
+  transform: none;
+  color: #d4ddea;
+  background: rgba(148, 163, 184, .07);
+  border-color: transparent;
+}
+.lobby-filter:active { transform: translateY(1px); }
+.lobby-filter.is-active {
+  color: #dffcef;
+  background: rgba(0, 255, 134, .10);
+  border-color: transparent;
+  box-shadow: inset 0 -2px 0 var(--mint);
+}
+
+.lobby-grid {
+  grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 16vw, 264px), 1fr));
+  gap: clamp(10px, 1.25vw, 16px);
+  padding-block: clamp(14px, 2vw, 26px);
+}
+
+.game-card {
+  border-color: rgba(148, 163, 184, .14);
+  border-radius: 12px;
+  background: #0d1723;
+  box-shadow: 0 16px 34px -30px rgba(0, 0, 0, .98), inset 0 1px 0 rgba(255, 255, 255, .02);
+  transition: transform .2s var(--ease), border-color .2s var(--ease), background-color .2s var(--ease);
+}
+.game-card::before {
+  inset: 0 0 auto;
+  height: 2px;
+  opacity: .78;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 22%, transparent) 58%, transparent 92%);
+}
+.game-card::after { display: none; }
+.game-card:hover,
+.game-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 34%, rgba(148, 163, 184, .16));
+  background: #101c29;
+  box-shadow: 0 18px 38px -28px rgba(0, 0, 0, .98);
+}
+.game-card:hover::before,
+.game-card:focus-visible::before { opacity: 1; }
+.game-card:active { transform: translateY(0); }
+
+.card-art {
+  border-radius: 8px;
+  background: #08111e;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, .08);
+}
+.card-art .ca-bg { fill: #08111e; }
+.game-card:hover .ca-glow,
+.game-card:focus-visible .ca-glow { opacity: .24; transform: scale(1.08); }
+.game-card__name { font-weight: 780; }
+.game-card__desc { color: #a1aec1; }
+.game-card__badge {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.game-card__live { color: #7f8da4; }
+.game-card__live .dot { box-shadow: none; animation-duration: 3.6s; }
+
+.game-card__cta {
+  right: calc(var(--card-pad) + 6px);
+  top: calc(var(--card-pad) + 6px);
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, rgba(148, 163, 184, .12));
+  border-radius: 6px;
+  color: #e8eef8;
+  background: rgba(6, 12, 21, .84);
+  box-shadow: none;
+  transform: translateY(-3px);
+}
+.game-card:hover .game-card__cta,
+.game-card:focus-visible .game-card__cta { transform: none; }
+
+.lobby-empty {
+  background: #0d1723;
+  box-shadow: none;
+}
+.lobby-foot p { color: #8290a6; }
+
+@media (max-width: 1200px) {
+  .lobby-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 980px) {
+  .lobby-hero { padding-block: 24px 20px; }
+}
+
+@media (max-width: 720px) {
+  .lobby > .lobby-toolbar { padding-block: 9px; gap: 8px; }
+  .lobby-filters {
+    gap: 3px;
+    padding: 3px;
+    border-radius: 9px;
+  }
+  .lobby-filter {
+    flex-basis: calc(33.333% - 4px);
+    min-height: 42px;
+    border-radius: 6px;
+  }
+  .lobby-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+  }
+  .lobby-stat + .lobby-stat { border-inline-start: 0; }
+  .lobby-stat:nth-child(even) { border-inline-start: 1px solid var(--hair); }
+  .lobby-stat:nth-child(n + 3) { border-top: 1px solid var(--hair); }
+}
+
+@media (max-width: 520px) {
+  .lobby-hero {
+    padding-block: 15px 12px;
+  }
+  .lobby-hero__copy { gap: 9px; }
+  .lobby-hero__eyebrow span { font-size: 9px; }
+  .lobby-hero__title { font-size: clamp(31px, 9vw, 38px); }
+  .lobby-hero__sub { font-size: 12.8px; line-height: 1.48; }
+  .lobby-hero__actions { width: 100%; }
+  .lobby-hero__actions .btn--lg {
+    min-height: 44px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+  .lobby-stat { padding: 8px 10px; }
+  .lobby-stat dt { font-size: 8.5px; }
+  .lobby-stat dd { font-size: 14px; }
+  .lobby-grid { gap: 10px; }
+  .game-card__cta { padding: 4px 7px; }
+}
+
+@media (hover: none) {
+  .game-card__cta {
+    color: #cbd5e1;
+    background: rgba(6, 12, 21, .86);
+  }
+}
+
+
+/* The visual-system layer above is appended after the original responsive
+   ladder, so restate the structural steps here rather than letting the desktop
+   two-column hero and four-column catalog leak onto phones. */
+@media (max-width: 980px) {
+  .lobby-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .lobby-hero__art { display: none; }
+  .lobby-hero__title { max-width: none; }
+}
+
+@media (max-width: 600px) {
+  .lobby-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lobby-filter,
+  .lobby-empty .btn { min-height: 44px; }
+}
+
+/* Touch tablets retain the same floor even when they use the wider catalog. */
+@media (pointer: coarse) {
+  .lobby-filter,
+  .lobby-empty .btn { min-height: 44px; }
 }

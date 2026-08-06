@@ -4,13 +4,11 @@
 
 A standalone play-money casino suite — Plinko, Crash, Twist, Limbo, Roulette, Pocket Dice,
 Dice, Hilo, Keno, Mines and Blackjack — written in plain ES modules and Canvas 2D. The site
-has no bundler, no framework, no runtime dependency, and no CDN-hosted JavaScript or CSS.
+has no bundler, no framework, no runtime dependency, and no third-party runtime request.
 Every stage is drawn procedurally with no image or sprite files. Game events use the bundled
-game sound library through a same-origin `HTMLAudioElement` pool. The one external request the
-**web** build makes is the Google Fonts stylesheet for Inter + Roboto Mono; remove those three
-`<link>` tags in `index.html` and it falls back to the system stack. The **packaged native app**
-never makes that request: `scripts/build-www.mjs` strips the CDN tags when it generates `www/`
-and links `css/fonts.css`, which serves four vendored variable-font `.woff2` files from `fonts/`.
+Gamdom sound set through a same-origin `HTMLAudioElement` pool. Inter and Roboto Mono are
+self-hosted through `css/fonts.css`, so the web and native targets use the same typography
+offline without a render-blocking font CDN.
 
 `package.json` carries two toolchains and ships neither to the browser: `wrangler` for the
 Cloudflare deploy, and Capacitor for the [native app](#native-app-android--ios) —
@@ -44,6 +42,7 @@ Windows users can just double-click `start.bat`.
 - [Project layout](#project-layout)
 - [The money invariant](#the-money-invariant)
 - [Shared canvas theme](#shared-canvas-theme)
+- [Appearance themes](#appearance-themes)
 - [Development](#development)
 - [Deploy to Cloudflare](#deploy-to-cloudflare)
 - [Native app (Android & iOS)](#native-app-android--ios)
@@ -60,9 +59,9 @@ HMAC-derived randomness, a soft-body-ish physics sim, eleven bespoke canvas rend
 one design language, an asset-backed audio pool with game-specific cue timing, and a money path
 that must never lose a cent no matter how the UI is abused.
 
-The visual language is an original casino interface, and every line of code, every payout table
-and every piece of art here is original and self-contained. No third-party resource is fetched
-at runtime beyond the two web fonts.
+The visual language is modelled on [Gamdom's](https://gamdom.com) Originals, but every line of
+code, every payout table and every piece of art here is original and self-contained. No
+third-party resource is fetched at runtime.
 
 ---
 
@@ -108,15 +107,19 @@ nonce, history and stats. Optional PINs (a shared-computer courtesy, *not* secur
 unsalted, verified in the browser, and the UI says so). Sessions export to a single-line
 `NOURSCASINO01.…` code that survives a paste into any chat box, and import back.
 
-**Customization.** Set an exact balance, a house edge (negative is allowed — you can make the
-house lose), bet limits, and a max-win cap. Payouts scale from the 1% baseline edge every table
-was built at, so the default is byte-identical to untouched behaviour.
+**Customization and appearance.** Set an exact balance, a house edge (negative is allowed —
+you can make the house lose), bet limits, and a max-win cap. The same dialog contains the
+canonical appearance selector: **Default** preserves the original deep-navy presentation and
+**OLED Black** uses a true-black application canvas with restrained near-black elevation. The
+selection applies immediately, persists in `localStorage`, survives route changes, and syncs
+across open tabs. Payouts scale from the 1% baseline edge every table was built at, so the
+untouched default remains byte-identical to the original behaviour.
 
 **Auto mode.** Run 1–∞ rounds unattended. Games with a mid-round decision report `busy` so the
 loop waits instead of double-betting; it stops automatically when the balance can't cover the
 next bet.
 
-**Asset-backed audio.** `js/audio.js` lazily pools the 77 bundled game MP3/WAV cues, limits
+**Asset-backed audio.** `js/audio.js` lazily pools the 77 bundled Gamdom MP3/WAV cues, limits
 overlapping voices, and keeps mute, volume, loop, visibility, and browser-unlock state shared.
 
 **Hotkeys** (game route only, so a focused lobby card can never place a bet):
@@ -191,20 +194,25 @@ import {
 
 ```mermaid
 flowchart TD
-  A[index.html] --> B[js/app.js — controller]
+  A[index.html] --> P[js/theme-bootstrap.js — pre-paint appearance]
+  A --> B[js/app.js — controller]
+  P --> Q[js/theme.js — selector + persistence binding]
+  B --> Q
   B --> C[state · wallet · history · stats]
   B --> D[routing · lobby · auto mode]
   B --> E[js/accounts.js — profiles]
   B --> F[js/cheats.js — outcome peek]
-  B --> G[js/audio.js — synth]
+  B --> G[js/audio.js — sound pool]
   B --> H[11 game modules]
-  H --> I[js/render/theme.js — shared canvas primitives]
+  H --> I[js/render/theme.js — live canvas palette + primitives]
   H --> J[js/math/provably-fair.js — HMAC outcomes]
   B --> J
 ```
 
-`index.html` loads exactly one script — `js/app.js` — and everything else is reached through
-imports.
+`index.html` loads one small classic script before CSS so a persisted appearance is established
+before first paint, then loads `js/app.js` as the single application module entry point.
+Everything else is reached through imports. Both scripts are same-origin and remain compatible
+with the existing `script-src 'self'` policy.
 
 ### Ownership boundaries
 
@@ -215,6 +223,8 @@ imports.
 | Canvas rendering, per-game animation | the game module | `app.js` |
 | Seeds, HMAC, outcome derivation | `js/math/provably-fair.js` | everyone else reuses it |
 | Sound | `js/audio.js` singleton, injected | game modules never construct one |
+| Appearance preference and root theme | `js/theme-bootstrap.js` + `js/theme.js` | game and wallet state |
+| Canvas-neutral colour roles | `js/render/theme.js` | business logic |
 
 **Game modules never touch money.** They compute an outcome and hand it back; `app.js` debits
 before the round and credits on settle. That single rule is why the balance invariant holds.
@@ -242,8 +252,8 @@ to construct must never take the page down.
 ### Debug handle
 
 `window.plinko` exposes `{ state, pending, physics, <all 11 game instances>, audio, auto,
-selectGame, enterGame, showLobby, applyLobbyFilter, …handlers }`. Everything the UI can do can
-be driven from the console.
+theme, selectGame, enterGame, showLobby, applyLobbyFilter, …handlers }`. Everything the UI can
+do can be driven from the console, including `theme.setTheme('default' | 'oled')`.
 
 ---
 
@@ -251,19 +261,22 @@ be driven from the console.
 
 ```
 index.html              Markup: topbar, lobby + 11 inline SVG card scenes, control panes, stages, modals
-styles.css              Base theme, layout grid, components, responsive
-css/casino.css          Colour tokens, live-bets skin, chrome polish, cheat panel   (loaded 2nd)
-css/lobby.css           Lobby design system: routes, hero, grid, card-art keyframes (loaded last)
-css/fonts.css           @font-face for the four vendored faces — linked in the packaged build only
-fonts/                  Inter + Roboto Mono variable .woff2, latin + latin-ext (native app only)
+styles.css              Default appearance, layout grid, components, responsive
+css/gamdom.css          Colour tokens, live-bets skin, chrome polish, cheat panel
+css/lobby.css           Lobby design system: routes, hero, grid, card-art keyframes
+css/themes.css          Appearance selector + OLED semantic tokens and component coverage (loaded last)
+css/fonts.css           @font-face for the four self-hosted Inter + Roboto Mono subsets
+fonts/                  Inter + Roboto Mono variable .woff2, latin + latin-ext (web + native)
 start.bat               Windows launcher (python http.server + opens browser)
 
+js/theme-bootstrap.js   CSP-safe pre-paint theme validation, persistence and cross-tab sync
+js/theme.js             Accessible appearance-selector binding and live status feedback
 js/app.js               Controller: state, wallet, history, stats, auto mode, routing, all wiring
 js/accounts.js          Named profiles in localStorage + export/import codes
 js/cheats.js            Outcome peek for all 11 games (pure — never mutates anything)
 js/physics.js           Plinko board: peg pyramid, ball sim, bucket VFX
 js/audio.js             Asset-backed HTMLAudio pool, cue aliases, mute/volume persistence
-assets/audio/           77 bundled game sound cues (76 MP3, 1 WAV)
+assets/gamdom/          77 bundled game sound cues (76 MP3, 1 WAV)
 js/native.js            Capacitor bridge — status bar, splash, back button, haptics; inert in a browser
 js/render/theme.js      Shared canvas primitives: palette, paintStage, peg/chip/tile/card/…
 js/math/provably-fair.js  HMAC-SHA256 outcomes, seed pair, verifier, SHA-256 fallback
@@ -278,12 +291,11 @@ package.json            Deploy (`wrangler`) + packaging (Capacitor) toolchains; 
 tools/check-syntax.mjs  Cross-platform `node --check` gate (`npm run check`)
 
 capacitor.config.js     Native app id, WebView origin, plugin config — read the warning inside
-scripts/build-www.mjs   Generates `www/` from the root sources; swaps the CDN fonts for local ones
+scripts/build-www.mjs   Generates `www/`; verifies local fonts, audio and pre-paint theme bootstrap
 scripts/check.mjs       `npm run check:cap` — parse `js/**` + audit `capacitor.config.js`
-android/                Committed Gradle project (Capacitor output; build dirs are gitignored)
-ios/                    Committed Xcode project — SPM, no Podfile, no `.xcworkspace`
+android/                Generated with `npx cap add android` when Android packaging is needed
+ios/                    Included Xcode project — SPM, no Podfile, no `.xcworkspace`
 resources/              Icon + splash source art for `@capacitor/assets`
-.github/workflows/      android.yml (debug APK) · ios.yml (unsigned simulator build)
 MOBILE.md               Full native guide: setup, APK, signing, iOS, store + gambling policy
 ```
 
@@ -345,8 +357,34 @@ T.heroText / T.caption / T.panel
 All coordinates are CSS pixels; callers own DPR (`ctx.scale(dpr, dpr)` once on resize). Every
 helper is `save()`/`restore()` balanced, so no call leaks `shadowBlur` or `fillStyle`.
 
-Palette: mint `#00ff86` (primary/win), red `#ef4444` (loss), gold `#fbbf24` (jackpot tier),
-base `#070b12` → `#0d1420`. Each stage adds one accent glow for its own identity.
+Palette: mint `#00ff86` (primary/win), red `#ef4444` (loss), gold `#fbbf24` (jackpot tier).
+Neutral stage colours come from the active palette: Default retains `#070b12` → `#0d1420`, while
+OLED uses true black plus restrained near-black panels. Each stage keeps its game-specific accent.
+
+---
+
+## Appearance themes
+
+The application supports two explicit choices:
+
+- **Default** — the original deep-navy visual system.
+- **OLED Black** — true black for the document, large page regions, top-level chrome and stage
+  canvases; near-black elevated surfaces and restrained borders preserve hierarchy.
+
+Open **Tools → Customize → Appearance** on compact screens, or **Customize → Appearance** in the
+desktop top bar. The native radio group is keyboard-operable and exposes checked state normally.
+Selecting a theme updates CSS, canvases, browser `theme-color`, and the Android status-bar surface
+without reloading or resetting a round.
+
+The stable preference key is `nours.theme.v1`. `js/theme-bootstrap.js` validates it before CSS is
+parsed, rejects unknown values safely, applies the root `data-theme`, and listens for storage
+changes from other tabs. `js/theme.js` only binds the rendered selector. This division avoids a
+first-paint navy flash for returning OLED users without introducing inline script or weakening CSP.
+Blocked storage degrades to an in-memory theme for the current tab rather than breaking startup.
+
+When adding a shared UI colour, prefer a semantic token in `styles.css`/`css/themes.css`. When
+adding a neutral Canvas colour, extend `DEFAULT_PALETTE` and `OLED_PALETTE` together in
+`js/render/theme.js`; do not read computed CSS inside a per-frame render loop.
 
 ---
 
@@ -354,10 +392,12 @@ base `#070b12` → `#0d1420`. Each stage adds one accent glow for its own identi
 
 There is no toolchain to install. Edit a file, reload the page.
 
-The only automated gate is a syntax check, which runs on any platform:
+The source checks and packaged-web build run on any platform with Node:
 
 ```bash
-npm run check          # → "OK  18 modules parsed cleanly."
+npm run check          # syntax gate over the browser modules
+npm run check:cap      # syntax + Capacitor configuration audit
+npm run build          # regenerate www/ and verify fonts, audio and appearance bootstrap
 ```
 
 It also runs automatically as `predeploy`, so a module that won't parse can't reach the edge.
@@ -417,8 +457,8 @@ it is never downloadable. It sets `nosniff`, `X-Frame-Options: DENY`, a `Referre
 ```
 default-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none';
 frame-ancestors 'none'; form-action 'none'; base-uri 'self';
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-font-src  'self' https://fonts.gstatic.com;
+style-src 'self' 'unsafe-inline';
+font-src  'self';
 img-src   'self' data:;
 ```
 
@@ -456,30 +496,31 @@ of this README runs with GitHub's default headers.
 
 ## Native app (Android & iOS)
 
-**Capacitor 8.4.2** wraps this exact codebase in a real native project — a Gradle/Android Studio
-project under `android/`, an Xcode project under `ios/` — whose single screen is a full-bleed
-system WebView loading the app from inside the bundle, plus a JS↔native plugin bridge. It is not
-a PWA, not an "Add to Home Screen" shortcut, not a webview pointed at a URL, and not a rewrite:
-the same `index.html` and `js/**` run on the phone and in desktop Chrome. Both native projects
-are committed.
+**Capacitor 8.4.2** wraps this exact codebase in real native projects — a generated
+Gradle/Android Studio project under `android/` and the included Xcode project under `ios/` —
+whose single screen is a full-bleed system WebView loading the app from inside the bundle, plus
+a JS↔native plugin bridge. It is not a PWA, not an "Add to Home Screen" shortcut, not a webview
+pointed at a URL, and not a rewrite: the same `index.html` and `js/**` run on the phone and in
+desktop Chrome.
 
 ```
 repo root  ──node scripts/build-www.mjs──>  www/  ──npx cap sync──>  android/ + ios/
 ```
 
 `www/` is **generated output** and gitignored. Never hand-edit it — the next build wipes it
-without warning, and the repo root stays the source of truth. It is also **not** a byte-copy of
-the root: `index.html` is rewritten on the way through to drop the Google Fonts `<link>` tags and
-link `css/fonts.css` instead. That has to happen at build time, because a render-blocking
-stylesheet request in an offline WebView stalls first paint for the whole DNS timeout, and with
-`launchAutoHide: false` the app then hangs on the splash screen forever. Everything else is
-copied verbatim, so a bug reproduced in a desktop browser is the same bug on device.
+without warning, and the repo root stays the source of truth. The generated web payload is a
+direct copy of the browser source subset. `scripts/build-www.mjs` then verifies that the local
+font stylesheet, font files, bundled sound assets, and pre-paint appearance bootstrap are present
+in the correct order.
+A bug reproduced in a desktop browser therefore exercises the same HTML, CSS, and JavaScript
+that runs on device, without a native-only typography rewrite.
 
 | Command | Does |
 |---|---|
 | `npm run build` | Regenerate `www/` from the repo root |
-| `npm run sync` | `check:cap` → `build` → `cap sync` — push the web app into both native projects |
-| `npm run android` | `sync`, then open the Gradle project in Android Studio |
+| `npm run sync` | `check:cap` → `build` → `cap sync` — push the web app into available native projects |
+| `npx cap add android` | One-time creation of `android/` after dependencies are installed |
+| `npm run android` | `sync`, then open the generated Gradle project in Android Studio |
 | `npm run ios` | `sync`, then open the Xcode project (macOS only) |
 | `npm run check:cap` | `node --check` over `js/**` **and** an audit of `capacitor.config.js` |
 
@@ -498,8 +539,8 @@ because there is no bundler and a bare specifier would 404 over plain HTTP and t
 down. In a browser `window.Capacitor` does not exist, `isNative` is false and every export
 returns immediately, which is why the web build is completely unaffected by any of this.
 
-It provides: a dark status bar; the splash screen held until the first painted frame; Android
-hardware-back (topmost modal → close it, game route → lobby, lobby → exit the app); an
+It provides: a theme-aware dark status bar (deep navy for Default, true black for OLED); the
+splash screen held until the first painted frame; Android hardware-back (topmost modal → close it, game route → lobby, lobby → exit the app); an
 AudioContext resume on app resume, because iOS suspends it on background; and haptics on
 bet / win / loss, throttled to one pulse per 150ms — a 60-ball Plinko drop settles each ball
 separately, and un-throttled that is one continuous buzz rather than feedback.
@@ -522,15 +563,12 @@ separately, and un-throttled that is one continuous buzz rather than feedback.
 Both are pinned in `capacitor.config.js` with the warnings that explain them sitting right above
 the values. `MOBILE.md` §5.5 and §6 are the long form.
 
-### Where this actually stands
+### Where this archive actually stands
 
-A debug APK builds on Windows (`gradlew.bat assembleDebug`) and is v2-signed —
-`com.nourscasino.app`, `versionName 1.0`, `minSdk 24`, `targetSdk 36`, ~6.7 MB — but it has
-**never been launched on a device or emulator.** This machine has no hypervisor, so the emulator
-attaches to `adb` as `offline` and never finishes booting; "compiles and is signed" is all that
-has been proven, and installing it on a real phone is the first genuine test. **iOS has never
-been compiled at all** — that needs macOS. `.github/workflows/android.yml` (debug APK) and
-`.github/workflows/ios.yml` (unsigned simulator build) exist as CI compile gates.
+The iOS project is included. The generated Android project and CI workflow directory are not
+part of this source archive; create `android/` once with `npx cap add android` before using the
+Android open/build commands. Native compilation and physical-device launch remain separate from
+the browser and packaged-web checks described above.
 
 **[`MOBILE.md`](MOBILE.md) is the full guide**: toolchain setup from nothing, building and
 sideloading an APK, release signing, iOS without a Mac, store submission, and the
@@ -561,20 +599,23 @@ simulated-gambling policy rules that are what actually get a casino app rejected
 Modern evergreen browsers (ES modules, Canvas 2D, Web Audio, Web Crypto). Web Crypto is optional
 — a bundled SHA-256 fallback covers non-secure contexts.
 
-Keyboard-navigable throughout, ARIA labels on controls, focus trapping in modals, and full
-`prefers-reduced-motion` support (51 running animations become 0). Responsive from 320px up,
-with 44px touch targets and safe-area insets on `pointer: coarse` devices.
+Keyboard-navigable throughout, ARIA labels on controls, focus trapping in modals, an accessible
+radio-group appearance selector, and full `prefers-reduced-motion` support (51 running animations
+become 0). Theme-switch transitions also collapse under reduced motion. Responsive from 320px up,
+with 44px touch targets and safe-area insets on `pointer: coarse` devices. Both appearances use a
+dark `color-scheme` so browser-provided controls remain legible; OLED adds explicit autofill,
+selection, scrollbar, focus, forced-colour and print handling.
 
 ---
 
 ## Disclaimer
 
 Play money. No real currency, no accounts, no payments, no backend, no analytics, no telemetry.
-Everything lives in your browser's `localStorage`, and the only request the app makes is for the
-Google Fonts stylesheet (removable — see the top of this README).
+Everything lives in your browser's `localStorage`; code, fonts, art, and audio are served from
+the project itself with no analytics or third-party runtime request.
 
-Not affiliated with or endorsed by any casino operator. The visual language and implementation
-are original.
+Not affiliated with, endorsed by, or derived from the code of Gamdom or any other operator. The
+visual language is an homage; the implementation is original.
 
 If real gambling is a problem for you or someone you know, help is available —
 [BeGambleAware](https://www.begambleaware.org/) · [Gamblers Anonymous](https://www.gamblersanonymous.org/).

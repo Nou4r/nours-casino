@@ -606,6 +606,12 @@ export class TwistGame {
     this.needsPaint = true;
   }
 
+  /** Repaint immediately with the active shared palette. */
+  refreshTheme() {
+    this.needsPaint = true;
+    this.render();
+  }
+
   /**
    * Start the animation loop. Exactly one rAF handle exists per instance.
    *

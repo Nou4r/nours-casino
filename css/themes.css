@@ -1,0 +1,716 @@
+/* ==========================================================================
+   Nour's Casino — appearance themes
+
+   The existing deep-navy appearance remains the default. OLED Black is an
+   explicit, persisted alternative: large persistent regions use true black,
+   while a small near-black ladder, borders, type and the existing game accents
+   preserve hierarchy. This file loads last so legacy literal colours can be
+   corrected without duplicating component structure.
+   ========================================================================== */
+
+/* ------------------------- Appearance selector ------------------------- */
+.appearance-settings {
+  gap: 10px;
+}
+
+.appearance-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.appearance-fieldset > .field__hint { margin-top: 8px; }
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.theme-option {
+  position: relative;
+  min-width: 0;
+  min-height: 104px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  gap: 8px 10px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: color .16s var(--ease), background-color .16s var(--ease),
+              border-color .16s var(--ease), transform .12s var(--ease);
+}
+
+.theme-option:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--text-faint) 55%, transparent);
+}
+
+.theme-option:active { transform: translateY(1px); }
+
+.theme-option:has(.theme-option__input:focus-visible) {
+  outline: 2px solid var(--green-hi);
+  outline-offset: 2px;
+}
+
+.theme-option:has(.theme-option__input:checked) {
+  color: var(--text);
+  border-color: rgba(0, 255, 134, .48);
+  background: rgba(0, 255, 134, .055);
+  box-shadow: inset 3px 0 0 var(--mint, #00ff86);
+}
+
+.theme-option__preview {
+  grid-row: 1 / span 2;
+  width: 76px;
+  aspect-ratio: 4 / 3;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  grid-template-rows: 10px 1fr 8px;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045);
+}
+
+.theme-option__preview::before,
+.theme-option__preview::after,
+.theme-option__preview i {
+  content: '';
+  display: block;
+  border-radius: 3px;
+}
+
+.theme-option__preview::before {
+  grid-column: 1 / -1;
+  background: rgba(255, 255, 255, .12);
+}
+
+.theme-option__preview::after {
+  grid-row: 2 / 4;
+  background: rgba(0, 255, 134, .16);
+  border: 1px solid rgba(0, 255, 134, .34);
+}
+
+.theme-option__preview i:nth-child(1) {
+  grid-column: 2;
+  background: rgba(255, 255, 255, .10);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+.theme-option__preview i:nth-child(2) {
+  grid-column: 2;
+  background: linear-gradient(90deg, #00ff86 0 32%, rgba(255, 255, 255, .10) 32% 100%);
+}
+
+.theme-option__preview i:nth-child(3) { display: none; }
+
+.theme-option__preview--default {
+  background: #0b1422;
+}
+
+.theme-option__preview--oled {
+  background: #000;
+}
+
+.theme-option__preview--oled::before,
+.theme-option__preview--oled i:nth-child(1) {
+  background: #0a0a0a;
+  border-color: #292929;
+}
+
+.theme-option__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.theme-option__copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.theme-option__copy small {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+.theme-option__state {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--mint, #00ff86);
+  opacity: 0;
+}
+
+.theme-option:has(.theme-option__input:checked) .theme-option__state {
+  opacity: 1;
+}
+
+@media (max-width: 520px) {
+  .theme-options { grid-template-columns: minmax(0, 1fr); }
+  .theme-option { min-height: 92px; }
+}
+
+/* ----------------------- User-initiated transition --------------------- */
+/* The bootstrap never adds this class at first paint. It is present only for
+   the brief, later transition that follows an explicit selection or tab sync. */
+html.theme-switching body,
+html.theme-switching .topbar,
+html.theme-switching .panel,
+html.theme-switching .board-stage,
+html.theme-switching .history-rail,
+html.theme-switching .board-footer,
+html.theme-switching .live-players-section,
+html.theme-switching .modal__card,
+html.theme-switching .toast,
+html.theme-switching .game-card,
+html.theme-switching .card-art,
+html.theme-switching .lobby-toolbar::before,
+html.theme-switching .phone-playbar,
+html.theme-switching .controls-sheet-content,
+html.theme-switching .topbar__actions,
+html.theme-switching .input,
+html.theme-switching .segmented,
+html.theme-switching .chip-btn,
+html.theme-switching .theme-option {
+  transition-property: background-color, background, border-color, color, box-shadow;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease);
+}
+
+/* ------------------------------- OLED --------------------------------- */
+html[data-theme="oled"] {
+  color-scheme: dark;
+
+  /* Large surfaces */
+  --bg: #000000;
+  --bg-deep: #000000;
+  --panel: #050505;
+  --panel-2: #090909;
+  --panel-3: #0e0e0e;
+
+  /* Structure */
+  --line: rgba(255, 255, 255, .17);
+  --line-soft: rgba(255, 255, 255, .10);
+  --rail: rgba(255, 255, 255, .13);
+
+  /* Text: bright enough for clarity, restrained enough for a true-black field */
+  --text: #e7edf5;
+  --text-dim: #aeb9c7;
+  --text-faint: #7f8c9b;
+
+  /* Shared game/DOM canvas bridge */
+  --gamdom-dark: #050505;
+  --gamdom-surface: #050505;
+  --gamdom-text-dim: #8491a1;
+  --canvas-stage-bg: #000000;
+  --canvas-stage-edge: rgba(255, 255, 255, .15);
+  --canvas-panel-top: #090909;
+  --canvas-panel-bottom: #050505;
+  --canvas-panel-edge: rgba(255, 255, 255, .15);
+  --canvas-panel-filter: none;
+  --canvas-pill-bg: #050505;
+  --canvas-pill-edge: rgba(255, 255, 255, .15);
+  --canvas-game-text: #e7edf5;
+  --canvas-game-label: #7f8c9b;
+  --canvas-game-ticker: #e7edf5;
+  --canvas-game-rolling: #aeb9c7;
+  --canvas-game-pill-text: #aeb9c7;
+
+  /* Effects that remain visible without pretending a black surface is glass. */
+  --glass: none;
+  --shadow-card: 0 0 0 1px rgba(255, 255, 255, .018), 0 18px 34px -30px #000;
+  --glow-green: 0 0 0 1px rgba(0, 255, 134, .30), 0 10px 24px -18px rgba(0, 255, 134, .72);
+
+  background: #000000;
+}
+
+html[data-theme="oled"] body {
+  color: var(--text);
+  background: #000000;
+  background-image: none;
+}
+
+html[data-theme="oled"] ::selection {
+  color: #03130d;
+  background: #67ffc0;
+}
+
+html[data-theme="oled"] * {
+  scrollbar-color: #383838 #000000;
+}
+
+html[data-theme="oled"] *::-webkit-scrollbar-track { background: #000000; }
+html[data-theme="oled"] *::-webkit-scrollbar-thumb {
+  background: #383838;
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+html[data-theme="oled"] *::-webkit-scrollbar-thumb:hover { background: #505050; background-clip: content-box; }
+
+html[data-theme="oled"] :focus-visible {
+  outline-color: #5dffb7;
+  box-shadow: 0 0 0 1px #000;
+}
+
+/* Native/browser controls */
+html[data-theme="oled"] input,
+html[data-theme="oled"] select,
+html[data-theme="oled"] textarea {
+  color-scheme: dark;
+  accent-color: var(--mint, #00ff86);
+}
+
+html[data-theme="oled"] select option {
+  color: var(--text);
+  background: #090909;
+}
+
+html[data-theme="oled"] input:-webkit-autofill,
+html[data-theme="oled"] input:-webkit-autofill:hover,
+html[data-theme="oled"] input:-webkit-autofill:focus,
+html[data-theme="oled"] textarea:-webkit-autofill,
+html[data-theme="oled"] select:-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  box-shadow: 0 0 0 1000px #050505 inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* ---------------------------- App shell ------------------------------- */
+html[data-theme="oled"] .topbar {
+  background: #000000;
+  border-bottom-color: #242424;
+  box-shadow: 0 10px 26px -24px rgba(255, 255, 255, .16);
+}
+
+html[data-theme="oled"] .brand__text b {
+  background: none;
+  color: #f0f5fa;
+  -webkit-text-fill-color: currentColor;
+}
+
+html[data-theme="oled"] .game-nav {
+  background: #050505;
+  border-color: #262626;
+}
+
+html[data-theme="oled"] .game-tab:hover:not(.is-active) {
+  color: var(--text);
+  background: #111111;
+  border-color: #303030;
+}
+
+html[data-theme="oled"] .wallet,
+html[data-theme="oled"] .panel {
+  background-color: #050505;
+  border-color: #292929;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+html[data-theme="oled"] .btn {
+  border-color: #303030;
+}
+
+html[data-theme="oled"] .btn:not(.btn--mint):not(.btn--drop) { --btn-bg: #090909; }
+html[data-theme="oled"] .btn--ghost { --btn-bg: #070707; }
+html[data-theme="oled"] .btn--mint {
+  --btn-bg: linear-gradient(180deg, #23dda0, #12b981);
+  --btn-fg: #041a13;
+}
+
+html[data-theme="oled"] .btn:not(.btn--mint):not(.btn--drop):hover:not(:disabled),
+html[data-theme="oled"] .btn--ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: #141414;
+  border-color: #474747;
+}
+
+html[data-theme="oled"] .btn:not(.btn--mint):not(.btn--drop):active:not(:disabled) {
+  background: #0f0f0f;
+}
+
+html[data-theme="oled"] .btn:disabled,
+html[data-theme="oled"] .chip-btn:disabled,
+html[data-theme="oled"] .input:disabled {
+  color: #737373;
+  background-color: #050505;
+  border-color: #242424;
+  opacity: .72;
+}
+
+html[data-theme="oled"] .segmented {
+  background: #000000;
+  border-color: #292929;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .018);
+}
+
+html[data-theme="oled"] .segmented__thumb {
+  background: #111111;
+  border-color: #373737;
+}
+
+html[data-theme="oled"] .input {
+  color: var(--text);
+  background: #050505;
+  border-color: #333333;
+}
+
+html[data-theme="oled"] .input::placeholder { color: #7f8c9b; }
+html[data-theme="oled"] .input:hover { border-color: #505050; }
+html[data-theme="oled"] .input:focus {
+  background: #080808;
+  border-color: rgba(0, 255, 134, .72);
+  box-shadow: 0 0 0 3px rgba(0, 255, 134, .13);
+}
+html[data-theme="oled"] .input:read-only { background: #030303; }
+
+html[data-theme="oled"] .input-group__suffix,
+html[data-theme="oled"] .input-group__prefix { color: #a6b2c1; }
+
+html[data-theme="oled"] .chip-btn {
+  color: var(--text-dim);
+  background: #0c0c0c;
+  border-color: #303030;
+}
+
+html[data-theme="oled"] .chip-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(0, 255, 134, .095);
+  border-color: rgba(0, 255, 134, .40);
+}
+
+/* -------------------------- Game composition -------------------------- */
+html[data-theme="oled"] .layout,
+html[data-theme="oled"] .board {
+  background: transparent;
+}
+
+html[data-theme="oled"] .board-stage {
+  background: #000000;
+  border-color: #242424;
+  box-shadow: 0 24px 50px -38px rgba(255, 255, 255, .12), inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+html[data-theme="oled"] .board-stage__glow {
+  background: radial-gradient(120% 48% at 50% -12%, rgba(255, 255, 255, .035), transparent 64%);
+}
+
+html[data-theme="oled"] .game-stage-view,
+html[data-theme="oled"] .game-stage-view canvas {
+  background-color: #000000;
+}
+
+html[data-theme="oled"] .history-rail,
+html[data-theme="oled"] .board-footer {
+  background-color: #050505;
+  border-color: #282828;
+}
+
+html[data-theme="oled"] .hchip {
+  background-color: #090909;
+  border-color: color-mix(in srgb, currentColor 34%, #252525);
+}
+
+html[data-theme="oled"] .live-players-section {
+  background: #050505;
+  border-color: #282828;
+}
+
+html[data-theme="oled"] .live-players-header,
+html[data-theme="oled"] .live-players-table th,
+html[data-theme="oled"] .live-players-table td {
+  border-color: rgba(255, 255, 255, .095);
+}
+
+html[data-theme="oled"] .live-players-table tbody tr:nth-child(odd) { background: #080808; }
+html[data-theme="oled"] .live-players-table tbody tr:hover { background: rgba(0, 255, 134, .07); }
+html[data-theme="oled"] .live-players-table tbody tr:first-child { background: rgba(0, 255, 134, .055); }
+
+html[data-theme="oled"] .limbo-card .limbo-stat {
+  background: linear-gradient(180deg, #090909, #050505);
+  border-color: #292929;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+html[data-theme="oled"] .limbo-card .limbo-display {
+  background: #000000;
+  border-color: #252525;
+  box-shadow: none;
+}
+
+html[data-theme="oled"] .limbo-pill {
+  color: var(--text-dim);
+  background: #080808;
+  border-color: #2d2d2d;
+}
+
+/* ------------------------- Dialogs and feedback ----------------------- */
+html[data-theme="oled"] .modal__backdrop {
+  background: rgba(0, 0, 0, .84);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme="oled"] .modal__card {
+  background: #050505;
+  border-color: #303030;
+  box-shadow: 0 26px 64px -26px #000, 0 0 0 1px rgba(255, 255, 255, .025);
+}
+
+html[data-theme="oled"] .modal__head {
+  background: #080808;
+  border-bottom-color: #292929;
+}
+
+html[data-theme="oled"] .modal__body { background: #050505; }
+
+html[data-theme="oled"] .stat-card,
+html[data-theme="oled"] .verify__result,
+html[data-theme="oled"] .dist__body {
+  background: #090909;
+  border-color: #2c2c2c;
+  box-shadow: none;
+}
+
+html[data-theme="oled"] .stat-card--gold {
+  background: rgba(251, 191, 36, .075);
+  border-color: rgba(251, 191, 36, .28);
+}
+
+html[data-theme="oled"] .toast {
+  color: var(--text);
+  background: #090909;
+  border-color: #333333;
+  box-shadow: 0 16px 36px -20px #000, 0 0 0 1px rgba(255, 255, 255, .025);
+}
+
+html[data-theme="oled"] .tools-scrim,
+html[data-theme="oled"] .bet-controls-scrim {
+  background: rgba(0, 0, 0, .74);
+}
+
+html[data-theme="oled"] .cheat-panel {
+  background: linear-gradient(180deg, rgba(10, 10, 10, .97), rgba(5, 5, 5, .98));
+  border-color: #333333;
+  box-shadow: 0 18px 48px -24px #000;
+}
+
+html[data-theme="oled"] .cheat-row,
+html[data-theme="oled"] .cheat-cell {
+  background: #090909;
+  border-color: #292929;
+}
+
+html[data-theme="oled"] .acct-row {
+  background: #080808;
+  border-color: #2e2e2e;
+}
+
+html[data-theme="oled"] .acct-row:hover { background: #101010; border-color: #464646; }
+html[data-theme="oled"] .acct-row.is-active { background: rgba(0, 255, 134, .055); }
+
+html[data-theme="oled"] .file-pick {
+  color: var(--text-dim);
+  background: #050505;
+  border-color: #333333;
+}
+
+html[data-theme="oled"] .file-pick:hover { background: #0d0d0d; }
+
+html[data-theme="oled"] code,
+html[data-theme="oled"] kbd {
+  color: #dce7f4;
+  background: #0a0a0a;
+  border-color: #303030;
+}
+
+/* ------------------------------- Lobby -------------------------------- */
+html[data-theme="oled"] .lobby {
+  --hair: rgba(255, 255, 255, .16);
+  --hair-hi: rgba(255, 255, 255, .28);
+  --card-surface: #050505;
+  background: #000000;
+}
+
+html[data-theme="oled"] .lobby::before {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, .065) 1px, transparent 0),
+    linear-gradient(90deg, rgba(0, 255, 134, .016), transparent 30%, transparent 70%, rgba(56, 189, 248, .012));
+}
+
+html[data-theme="oled"] .lobby__orb { opacity: .11; }
+html[data-theme="oled"] .lobby-hero__eyebrow span { color: #9eaea8; }
+html[data-theme="oled"] .lobby-hero__title { color: #eef4f1; }
+html[data-theme="oled"] .lobby-hero__sub,
+html[data-theme="oled"] .game-card__desc { color: #acb7c6; }
+
+html[data-theme="oled"] .lobby-stats {
+  background: #050505;
+  border-color: #2a2a2a;
+}
+
+html[data-theme="oled"] .lobby-stat dt,
+html[data-theme="oled"] .game-card__live,
+html[data-theme="oled"] .lobby-foot p { color: #8592a2; }
+
+html[data-theme="oled"] .lobby-hero__art {
+  background:
+    linear-gradient(rgba(255, 255, 255, .026) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .026) 1px, transparent 1px),
+    radial-gradient(circle at 52% 45%, rgba(0, 255, 134, .055), transparent 52%),
+    #020202;
+  background-size: 26px 26px, 26px 26px, 100% 100%, 100% 100%;
+  border-color: #282828;
+}
+
+html[data-theme="oled"] .lobby-toolbar::before {
+  background: #000000;
+  border-top-color: #1f1f1f;
+  border-bottom-color: #292929;
+}
+
+html[data-theme="oled"] .lobby-search .input { background: #050505; border-color: #333333; }
+
+html[data-theme="oled"] .lobby-filters {
+  background: #050505;
+  border-color: #292929;
+}
+
+html[data-theme="oled"] .lobby-filter { color: #9aa6b6; }
+html[data-theme="oled"] .lobby-filter:hover:not(.is-active) {
+  color: var(--text);
+  background: #111111;
+}
+
+html[data-theme="oled"] .game-card {
+  background: #050505;
+  border-color: #292929;
+  box-shadow: 0 18px 36px -32px rgba(255, 255, 255, .12), inset 0 1px 0 rgba(255, 255, 255, .018);
+}
+
+html[data-theme="oled"] .game-card:hover,
+html[data-theme="oled"] .game-card:focus-visible {
+  background: #0b0b0b;
+  box-shadow: 0 18px 38px -32px rgba(255, 255, 255, .14);
+}
+
+html[data-theme="oled"] .card-art,
+html[data-theme="oled"] .card-art .ca-bg {
+  background: #000000;
+  fill: #000000;
+}
+
+html[data-theme="oled"] .card-art { box-shadow: inset 0 0 0 1px #202020; }
+
+html[data-theme="oled"] .game-card__cta {
+  color: #edf3fa;
+  background: rgba(0, 0, 0, .88);
+}
+
+html[data-theme="oled"] .lobby-empty {
+  background: #050505;
+  border-color: #2a2a2a;
+}
+
+html[data-theme="oled"] .lobby-foot { border-top-color: #252525; }
+
+/* ------------------------- Compact-screen sheets ---------------------- */
+@media (max-width: 960px) {
+  html[data-theme="oled"] .topbar__actions,
+  html[data-theme="oled"] .controls-sheet-content {
+    background: #050505;
+    border-color: #2d2d2d;
+    box-shadow: 0 -24px 50px -28px #000;
+  }
+
+  html[data-theme="oled"] .phone-playbar {
+    background: #000000;
+    border-top-color: #292929;
+    box-shadow: 0 -18px 34px -28px rgba(255, 255, 255, .14);
+  }
+
+  html[data-theme="oled"] .phone-bet-summary {
+    background: #080808;
+    border-color: #333333;
+  }
+
+  html[data-theme="oled"] .phone-bet-summary[aria-expanded="true"] {
+    background: rgba(0, 255, 134, .07);
+    border-color: rgba(0, 255, 134, .58);
+  }
+
+  html[data-theme="oled"] .controls-sheet-head {
+    background: #080808;
+    border-bottom-color: #2a2a2a;
+  }
+}
+
+/* ---------------------- Motion / forced colours / print --------------- */
+@media (prefers-reduced-motion: reduce) {
+  html.theme-switching body,
+  html.theme-switching .topbar,
+  html.theme-switching .panel,
+  html.theme-switching .board-stage,
+  html.theme-switching .history-rail,
+  html.theme-switching .board-footer,
+  html.theme-switching .live-players-section,
+  html.theme-switching .modal__card,
+  html.theme-switching .toast,
+  html.theme-switching .game-card,
+  html.theme-switching .card-art,
+  html.theme-switching .lobby-toolbar::before,
+  html.theme-switching .phone-playbar,
+  html.theme-switching .controls-sheet-content,
+  html.theme-switching .topbar__actions,
+  html.theme-switching .input,
+  html.theme-switching .segmented,
+  html.theme-switching .chip-btn,
+  html.theme-switching .theme-option {
+    transition-duration: .01ms;
+  }
+}
+
+@media (forced-colors: active) {
+  .theme-option,
+  .theme-option__preview,
+  .theme-option__state { forced-color-adjust: auto; }
+}
+
+@media print {
+  html[data-theme="oled"],
+  html[data-theme="oled"] body,
+  html[data-theme="oled"] .lobby,
+  html[data-theme="oled"] .panel,
+  html[data-theme="oled"] .modal__card,
+  html[data-theme="oled"] .game-card {
+    color: #000;
+    background: #fff;
+    background-image: none;
+    box-shadow: none;
+  }
+
+  html[data-theme="oled"] .topbar,
+  html[data-theme="oled"] .phone-playbar,
+  html[data-theme="oled"] .tools-scrim,
+  html[data-theme="oled"] .bet-controls-scrim { display: none; }
+}

@@ -1659,7 +1659,7 @@ export class BlackjackGame {
     const size = Math.min(Math.max(20, 38 * L.fs), (bw - r * 2) / (text.length * 0.68), bh * 0.62);
 
     ctx.save();
-    ctx.fillStyle = 'rgba(4, 8, 14, 0.62)';
+    ctx.fillStyle = T.isOledRenderTheme() ? 'rgba(0, 0, 0, 0.70)' : 'rgba(4, 8, 14, 0.62)';
     T.roundRect(ctx, L.cx - bw / 2, y - bh / 2, bw, bh, r);
     ctx.fill();
     ctx.strokeStyle = T.alpha(preset.color, 0.35);

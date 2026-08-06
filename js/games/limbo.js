@@ -406,7 +406,7 @@ export class LimboGame {
         flex-direction: column;
         gap: calc(13px * var(--ls));
         padding: calc(16px * var(--ls));
-        color: #e2e8f0;
+        color: var(--canvas-game-text);
         font-family: 'Inter', -apple-system, system-ui, sans-serif;
         text-align: left;
         overflow: hidden;
@@ -429,11 +429,11 @@ export class LimboGame {
         min-width: 0;
         border-radius: calc(12px * var(--ls));
         overflow: hidden;
-        background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(15, 21, 27, 0.72));
-        border: 1px solid rgba(255, 255, 255, 0.09);
+        background: linear-gradient(180deg, var(--canvas-panel-top), var(--canvas-panel-bottom));
+        border: 1px solid var(--canvas-panel-edge);
         box-shadow: 0 10px 22px -14px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: var(--canvas-panel-filter);
+        -webkit-backdrop-filter: var(--canvas-panel-filter);
       }
       .limbo-card .limbo-stat::after {
         content: '';
@@ -459,7 +459,7 @@ export class LimboGame {
         font-weight: 800;
         letter-spacing: max(0.03em, calc(0.14em * var(--ls)));
         text-transform: uppercase;
-        color: #64748b;
+        color: var(--canvas-game-label);
       }
       .limbo-card .limbo-stat__value {
         font-family: 'Roboto Mono', ui-monospace, monospace;
@@ -469,7 +469,7 @@ export class LimboGame {
         font-size: max(12px, calc(17px * var(--lt)));
         font-weight: 800;
         letter-spacing: -0.01em;
-        color: #e2e8f0;
+        color: var(--canvas-game-text);
       }
       .limbo-card .limbo-stat--target .limbo-stat__value { color: #fbbf24; }
       .limbo-card .limbo-stat--chance .limbo-stat__value { color: #22d3ee; }
@@ -487,8 +487,8 @@ export class LimboGame {
         align-items: center;
         justify-content: center;
         border-radius: calc(16px * var(--ls));
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        background: #070b12;
+        border: 1px solid var(--canvas-stage-edge);
+        background: var(--canvas-stage-bg);
         overflow: hidden;
         box-shadow: 0 24px 48px -30px rgba(0, 0, 0, 1);
         transition: border-color 0.25s ease, box-shadow 0.25s ease;
@@ -531,13 +531,13 @@ export class LimboGame {
         font-weight: 900;
         line-height: 1;
         letter-spacing: -0.035em;
-        color: #f1f5f9;
+        color: var(--canvas-game-ticker);
         text-shadow: 0 6px 28px rgba(0, 0, 0, 0.8);
         transition: color 0.16s ease, text-shadow 0.16s ease;
         will-change: transform;
       }
       .limbo-card .limbo-ticker.is-rolling {
-        color: #cbd5e1;
+        color: var(--canvas-game-rolling);
         text-shadow: 0 0 24px rgba(148, 163, 184, 0.4);
       }
       .limbo-card .limbo-ticker.is-win {
@@ -561,7 +561,7 @@ export class LimboGame {
         letter-spacing: max(0.06em, calc(0.18em * var(--ls)));
         line-height: 1.35;
         text-transform: uppercase;
-        color: #64748b;
+        color: var(--canvas-game-label);
         transition: color 0.2s ease;
       }
       .limbo-card .limbo-display.is-win .limbo-subtext { color: rgba(0, 255, 134, 0.8); }
@@ -590,9 +590,9 @@ export class LimboGame {
         font-size: max(10px, calc(12px * var(--lt)));
         font-weight: 800;
         white-space: nowrap;
-        color: #94a3b8;
-        background: rgba(30, 41, 59, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.07);
+        color: var(--canvas-game-pill-text);
+        background: var(--canvas-pill-bg);
+        border: 1px solid var(--canvas-pill-edge);
         animation: limboPillPop 0.26s cubic-bezier(0.18, 0.9, 0.32, 1.28);
       }
       .limbo-pill.is-win {
@@ -1431,7 +1431,7 @@ export class LimboGame {
 
     ctx.save();
     T.roundRect(ctx, x0, ty, railW, th, th / 2);
-    ctx.fillStyle = '#080d15';
+    ctx.fillStyle = T.PALETTE.rail;
     ctx.fill();
     ctx.clip();
 

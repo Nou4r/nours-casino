@@ -1,0 +1,981 @@
+/* ======================== Gamdom Aesthetics ======================== */
+:root {
+  --gamdom-mint: #00ff86;
+  --gamdom-dark: #131a22;
+  --gamdom-surface: #0f151b;
+  --gamdom-text-dim: #45515c;
+}
+
+.btn--drop {
+  background: linear-gradient(135deg, #00ff86, #10b981) !important;
+  color: #06090e !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px -4px rgba(0, 255, 134, 0.65) !important;
+}
+.btn--drop:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 26px -2px rgba(0, 255, 134, 0.85) !important;
+}
+
+/* Gamdom Live Players Table */
+.live-players-section {
+  margin-top: 16px;
+  background: var(--gamdom-surface);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 14px 16px;
+}
+.live-players-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.live-players-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.live-players-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gamdom-mint);
+}
+.live-players-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.live-players-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--gamdom-text-dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.live-players-table td {
+  padding: 9px 10px;
+  color: var(--text);
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.avatar-circle {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.table-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--gamdom-mint);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.txt-mint {
+  color: var(--gamdom-mint) !important;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: 700;
+}
+
+/* =====================================================================
+   Chrome polish — loads after styles.css, so plain selectors win ties.
+   Canvas stages paint their own backdrop via js/render/theme.js; the
+   shell's job is to frame them, not to compete with them.
+   ===================================================================== */
+
+:root {
+  --mint: #00ff86;
+  --mint-dim: rgba(0, 255, 134, .16);
+  --rail: rgba(255, 255, 255, .07);
+  --ink: #06090e;
+}
+
+/* ------------------------------- Stage -------------------------------- */
+
+/* Neutral, near-black frame. The old purple/green wash fought the canvas. */
+.board-stage {
+  background: linear-gradient(180deg, #0a0f18, #070b12);
+  border: 1px solid var(--rail);
+  box-shadow:
+    0 24px 60px -30px rgba(0, 0, 0, .95),
+    inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+/* Top sheen only — no coloured bloom, the canvas owns colour now. */
+.board-stage__glow {
+  background: radial-gradient(130% 52% at 50% -10%, rgba(255, 255, 255, .05), transparent 62%);
+}
+
+.game-stage-view canvas { border-radius: inherit; }
+
+/* ------------------------------ Game tabs ----------------------------- */
+
+.game-tab {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-weight: 700;
+  transition: background .18s var(--ease), color .18s var(--ease),
+              border-color .18s var(--ease), transform .12s var(--ease);
+}
+.game-tab:hover:not(.is-active) {
+  border-color: var(--rail);
+  transform: translateY(-1px);
+}
+.game-tab.is-active {
+  color: var(--ink);
+  background: linear-gradient(135deg, var(--mint), #10b981);
+  border-color: rgba(0, 255, 134, .55);
+  box-shadow:
+    0 6px 20px -6px rgba(0, 255, 134, .75),
+    inset 0 1px 0 rgba(255, 255, 255, .38);
+}
+
+/* ------------------------------- Brand -------------------------------- */
+
+/* #i-logo now ships its own silhouette and its own mint, so the tile that
+   styles.css paints behind it (gradient plate + inset highlight + 11px radius)
+   is cleared here rather than layered under a second container. The box keeps
+   its 38px footprint so the topbar rhythm is unchanged; only the paint goes. */
+.brand {
+  gap: 10px;
+  padding: 3px 8px 3px 4px;
+  margin-left: -4px;
+  border-radius: 12px;
+  text-decoration: none;
+  transition: background-color .18s var(--ease);
+}
+.brand:hover { background-color: rgba(0, 255, 134, .06); }
+.brand:focus-visible { border-radius: 12px; }
+
+.brand__mark {
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--mint);
+  /* The glow does the work the plate used to: it separates a mint mark from a
+     near-black bar without putting a second edge around it. */
+  filter: drop-shadow(0 2px 6px rgba(0, 255, 134, .3));
+  transition: transform .18s var(--ease), filter .18s var(--ease);
+}
+.brand:hover .brand__mark {
+  transform: translateY(-1px);
+  filter: drop-shadow(0 4px 10px rgba(0, 255, 134, .48));
+}
+
+/* Two lines, one optical block sized to the 22px mark beside it: the display
+   line carries the weight, the game line carries the tracking so both set to
+   roughly the same measure on the default "CASINO" state. Both are tracked, so
+   both claw the trailing letter-space back — otherwise the ragged right edge
+   reads as a typo rather than as type. */
+.brand__text {
+  gap: 2px;
+  line-height: 1;
+}
+.brand__text b {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  margin-right: -.16em;
+  /* styles.css clips a gradient into these glyphs; at 13px that softens the
+     stems, so it is reset to a flat tinted white (never #fff on this palette). */
+  background: none;
+  color: #e9f5ef;
+}
+.brand__text i {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .46em;
+  margin-right: -.46em;
+  color: var(--mint);
+  opacity: .9;
+}
+
+/* --------------------------- Live bets table -------------------------- */
+
+.live-players-section {
+  background: linear-gradient(180deg, #111820, #0d1319);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.live-players-table tbody tr {
+  transition: background .16s var(--ease);
+}
+.live-players-table tbody tr:nth-child(odd)  { background: rgba(255, 255, 255, .018); }
+.live-players-table tbody tr:hover           { background: rgba(0, 255, 134, .055); }
+.live-players-table tbody tr:first-child     { background: rgba(0, 255, 134, .075); }
+
+/* Numerals right-aligned and tabular so columns don't jitter as rows cycle. */
+.live-players-table td:nth-child(2),
+.live-players-table td:nth-child(3),
+.live-players-table th:nth-child(2),
+.live-players-table th:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-chip {
+  min-width: 58px;
+  text-align: center;
+  background: rgba(255, 255, 255, .05);
+  border-color: rgba(255, 255, 255, .10);
+  font-variant-numeric: tabular-nums;
+}
+.table-chip.txt-mint { background: var(--mint-dim); border-color: rgba(0, 255, 134, .34); }
+.table-chip.txt-red  { background: rgba(239, 68, 68, .14); border-color: rgba(239, 68, 68, .32); }
+
+/* Deterministic avatar tints so the feed reads as distinct people. */
+.avatar-circle {
+  width: 20px; height: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+}
+.live-players-table tr:nth-child(5n+1) .avatar-circle { background: linear-gradient(135deg, #00ff86, #059669); }
+.live-players-table tr:nth-child(5n+2) .avatar-circle { background: linear-gradient(135deg, #22d3ee, #3b82f6); }
+.live-players-table tr:nth-child(5n+3) .avatar-circle { background: linear-gradient(135deg, #a78bfa, #8b5cf6); }
+.live-players-table tr:nth-child(5n+4) .avatar-circle { background: linear-gradient(135deg, #fbbf24, #f97316); }
+.live-players-table tr:nth-child(5n+5) .avatar-circle { background: linear-gradient(135deg, #f87171, #dc2626); }
+
+/* ----------------------------- History rail --------------------------- */
+
+.hchip {
+  min-width: 62px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+}
+
+/* ------------------------------ Scrollbars ---------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 134, .28) transparent;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 134, .24);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 134, .42); background-clip: content-box; }
+
+/* ------------------------------- A11y --------------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-tab, .live-players-table tbody tr { transition: none; }
+  .game-tab:hover:not(.is-active) { transform: none; }
+  /* The mark is complete standing still; the hover lift is decoration only. */
+  .brand, .brand__mark { transition: none; }
+  .brand:hover .brand__mark { transform: none; }
+}
+
+/* ============================== Cheat mode ============================= */
+/* Floating HUD that reveals the upcoming (or in-flight) outcome of the active
+   game. Visibility is CSS-only — js/app.js writes body[data-cheat="on"|"off"],
+   and the existing body[data-route] decides lobby vs game. Both must agree, so
+   the panel can never leak onto the lobby. Markup lives at the end of
+   index.html; AppWiring only fills the containers and flips the attributes. */
+
+#btn-cheat.is-active {
+  color: var(--gamdom-mint);
+  border-color: rgba(0, 255, 134, .42);
+  background: rgba(0, 255, 134, .12);
+  box-shadow: 0 0 0 1px rgba(0, 255, 134, .16), 0 4px 16px -6px rgba(0, 255, 134, .75);
+}
+#btn-cheat.is-active:hover { background: rgba(0, 255, 134, .18); }
+
+.cheat-panel {
+  display: none;
+  position: fixed;
+  z-index: 70;                                  /* over the stage (topbar 60), under modals (100) */
+  top: 50%;
+  /* Sit in the gutter beside the 1560px layout when the viewport is wide
+     enough for one; fall back to hugging the edge as an overlay below that. */
+  right: max(14px, calc(50vw - 1048px));
+  transform: translateY(-50%);
+  width: 244px;
+  max-height: min(78vh, 620px);
+  overflow: hidden;
+  /* A readout must never steal a click. At most viewport widths this HUD
+     overlaps the stage (a 1560px layout leaves no 244px gutter until ~2650px),
+     and every board underneath is a canvas the player clicks directly — mines
+     tiles, keno numbers, the in-canvas Cash Out. Swallowing those would create
+     a dead zone that looks like a broken game. Only the close button opts back
+     in, so overlap stays purely visual at any width.
+     Trade-off: the panel cannot scroll. Content is capped at a handful of rows
+     plus a 5x5 grid, which fits the max-height above. */
+  pointer-events: none;
+  gap: 10px;
+  padding: 12px 13px 11px;
+  border: 1px solid rgba(0, 255, 134, .22);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(19, 26, 34, .93), rgba(15, 21, 27, .95));
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, .9), 0 0 26px -10px rgba(0, 255, 134, .45);
+  color: var(--text);
+}
+body[data-cheat="on"][data-route="game"] .cheat-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.cheat-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+.cheat-panel__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.cheat-panel__badge {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid rgba(0, 255, 134, .3);
+  border-radius: 99px;
+  background: rgba(0, 255, 134, .1);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  white-space: nowrap;
+  color: var(--gamdom-mint);
+}
+/* AppWiring adds .is-live while a round is actually in flight (fact, not guess). */
+.cheat-panel__badge.is-live {
+  border-color: rgba(251, 191, 36, .38);
+  background: rgba(251, 191, 36, .12);
+  color: var(--gold);
+}
+.cheat-panel__close {
+  flex: none;
+  pointer-events: auto;                         /* sole opt-in; panel is click-through */
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.cheat-panel__close:hover {
+  border-color: rgba(239, 68, 68, .45);
+  background: rgba(239, 68, 68, .12);
+  color: var(--red);
+}
+
+/* ------------------------------- Rows --------------------------------- */
+
+.cheat-rows { display: flex; flex-direction: column; gap: 6px; }
+.cheat-rows:empty { display: none; }
+.cheat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cheat-row__k {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cheat-row__v {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cheat-row__v.is-mint { color: var(--gamdom-mint); }
+.cheat-row__v.is-red  { color: var(--red); }
+.cheat-row__v.is-gold { color: var(--gold); }
+.cheat-row__v.is-dim  { color: var(--text-dim); }
+/* A 16-step L/R path or ten keno numbers must wrap, never widen the panel. */
+.cheat-row__v.is-mono {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ------------------------------- Cards -------------------------------- */
+
+.cheat-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.cheat-card-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.cheat-card {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 46px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #f7fafc, #dae2ed);
+  color: #0b1017;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 3px 10px -4px rgba(0, 0, 0, .85);
+}
+.cheat-card.is-red { color: var(--red); }
+.cheat-card__cap {
+  max-width: 52px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.cheat-card__cap:empty { display: none; }
+
+/* -------------------------------- Grid -------------------------------- */
+
+/* The narrow variants below centre this grid. They MUST do it with align-self,
+   never `margin-inline: auto`: an auto cross-axis margin overrides the flex
+   container's `stretch`, the item falls back to its content width, and with
+   `1fr` tracks and no intrinsic cell size that content width is ~23px — a 5x5
+   board rendered as 1px cells. Measured, on the docked phone panel. */
+.cheat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.cheat-cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(148, 163, 184, .09);
+}
+.cheat-cell.is-mine {
+  border-color: rgba(239, 68, 68, .68);
+  background: rgba(239, 68, 68, .5);
+  box-shadow: 0 0 8px -1px rgba(239, 68, 68, .8);
+}
+.cheat-cell.is-revealed {
+  border-color: rgba(0, 255, 134, .38);
+  background: rgba(0, 255, 134, .2);
+}
+
+/* -------------------------------- Note -------------------------------- */
+
+.cheat-note {
+  margin: 0;
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.cheat-note:empty { display: none; }
+
+/* Containers AppWiring blanks out for games with no cards / no board. */
+.cheat-cards.is-empty,
+.cheat-grid.is-empty { display: none; }
+
+/* ---------------------------- Responsive ------------------------------ */
+
+@media (max-width: 1080px) {
+  /* Sidebar has already stacked above the stage — dock out of the flow.
+     styles.css pins .btn--drop as a fixed bottom action bar for this whole
+     stacked regime, so the dock has to clear it: the panel is
+     pointer-events:none and cannot steal the button's taps, but sitting on top
+     of it still reads as a broken control. */
+  .cheat-panel {
+    top: auto;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    right: max(14px, env(safe-area-inset-right));
+    transform: none;
+    width: 224px;
+    max-height: min(52dvh, 420px);
+    padding: 10px 11px 10px;
+  }
+  .cheat-card { width: 30px; height: 41px; font-size: 12px; }
+  /* Wider than the old 148px cap: the panel is 224px in the tablet dock and
+     full-bleed on a phone (left/right: 10px), so the board has room. min(100%)
+     keeps it inside the narrower of the two. */
+  .cheat-grid { width: min(100%, 210px); align-self: center; }
+}
+
+/* styles.css pins .btn--drop as a fixed bottom action bar below 720px AND on
+   short landscape viewports (a rotated phone is 844px WIDE, so a width query
+   misses it). The panel is pointer-events:none so it cannot steal the button's
+   taps, but sitting on top of it still reads as a broken control — lift it clear
+   of the bar and the home indicator under both conditions.
+   dvh, not vh: a vh cap is computed against the URL-bar-expanded viewport, so the
+   panel would clip the moment the bar collapses, and a half-rendered row reads as
+   a wrong prediction (AGENTS.md §6). */
+@media (max-width: 720px) {
+  .cheat-panel {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    /* The panel cannot scroll (it is click-through), so this cap has to clear
+       the TALLEST model — a live mines round, 5x5 grid plus four rows. Measured
+       at 390x844: 430px with a 210px board. Anything tighter clips a row, and a
+       half-rendered row reads as a wrong prediction (AGENTS.md §6). */
+    max-height: min(62dvh, 470px);
+  }
+}
+
+/* Short viewports: the panel cannot scroll (it is click-through), so the
+   tallest model — mines, a 5x5 grid plus four rows — MUST fit inside max-height
+   or it clips silently, and a half-shown row reads as a wrong prediction
+   (AGENTS.md §6). Capping the grid shrinks the cells, which is where nearly all
+   of that height lives.
+   Threshold is 640px, not 560: the phone dock is capped at 62dvh, so a 568px
+   device gets 352px of panel for 395px of content — measured, clipped by 43px.
+   This block MUST stay AFTER the width blocks above: they also size .cheat-grid,
+   equal specificity means source order decides, and a height constraint has to
+   win over a width one or the shrink silently does nothing. */
+@media (max-height: 640px) {
+  .cheat-panel { gap: 7px; padding: 9px 10px 9px; }
+  .cheat-grid { width: min(100%, 148px); align-self: center; }
+  .cheat-card { width: 28px; height: 38px; font-size: 11px; }
+  .cheat-panel__title { font-size: 11px; }
+  .cheat-row__v { font-size: 11.5px; }
+}
+
+/* Width guard is required, not cosmetic: the <=1080px block above is what turns
+   off the base rule's `top: 50%; transform: translateY(-50%)`. Without the same
+   guard here, a short WIDE desktop (1400x500) would take this bottom offset while
+   still centred by the transform, and the panel would render half off the top. */
+@media (max-width: 1080px) and (max-height: 540px) and (orientation: landscape) {
+  .cheat-panel {
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    right: max(10px, env(safe-area-inset-right));
+    max-height: min(70dvh, 268px);
+  }
+  /* The tightest budget in the app: ~268px of panel on a 390px-tall screen. The
+     mines board shrinks to 88px so all four rows under it survive — measured
+     content 271px at a 104px board, which clipped by 23px. */
+  .cheat-grid { width: min(100%, 88px); align-self: center; }
+  .cheat-card { width: 24px; height: 33px; font-size: 10px; }
+  .cheat-panel__title { font-size: 10.5px; }
+  .cheat-row__v { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cheat-panel__close { transition: none; }
+}
+
+/* The wallet is balance + Deposit only; the cheat / profile / customize / reset
+   toggles moved out to .topbar__actions so the phone header fits two rows with
+   40px targets (styles.css <=520px block owns those sizes). All that is left
+   here is trimming the pill's own padding. */
+@media (max-width: 520px) {
+  .wallet__meta { margin-right: 0; }
+}
+
+/* ============================ Customize panel ============================
+   #modal-custom reuses .modal / .verify / .field / .input-group / .grid-2 /
+   .btn wholesale — it needs no layout rules of its own. The two readouts
+   below are the only pieces with no existing equivalent. */
+
+/* Live RTP + payout-scale readout. AppWiring writes label/value pairs as
+   "<span>Label</span><b>value</b>"; bare text still reads as a dim line. */
+#custom-rtp-out {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(148, 163, 184, .05);
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+#custom-rtp-out:empty { display: none; }
+#custom-rtp-out span { color: var(--text-dim); }
+#custom-rtp-out b { font-weight: 700; color: var(--gamdom-mint); }
+/* Player-advantage figures read as a warning, not a win. */
+#custom-rtp-out b.is-gold { color: var(--gold); }
+#custom-rtp-out b.is-red  { color: var(--red); }
+
+/* Negative-edge warning row. Empty is the default state, so it must collapse
+   rather than leave a gap in the modal body's flex column. */
+#custom-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgba(251, 191, 36, .32);
+  border-radius: var(--r-md);
+  background: rgba(251, 191, 36, .1);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--gold);
+}
+#custom-warn:empty { display: none; }
+
+/* =========================== Player profiles ============================
+   #modal-account reuses .modal / .verify / .field / .grid-2 / .chip-row /
+   .segmented / .btn wholesale, exactly as #modal-custom does — it needs no
+   modal rules of its own. What follows is only the handful of pieces with no
+   existing equivalent: the topbar identity chip, the player list, the file
+   picker, the save-string boxes and the status line.
+
+   Avatars stay procedural like every other mark in this project: a hue drives
+   an hsl() disc, so a name maps to a colour with no image file anywhere.
+   js/app.js writes --hue on the element (or on #btn-account, which inherits);
+   the fallback keeps the disc coloured before it ever does. */
+
+/* The identity chip is the 5th control in the .wallet cluster. It copies its
+   siblings' .btn .btn--ghost .btn--sm skin but deliberately NOT .btn--icon:
+   that modifier is aspect-ratio:1, which a text label would inflate into a
+   square as wide as the name and a taller topbar with it. */
+#btn-account { gap: 7px; padding: 7px 10px 7px 8px; }
+
+.acct-dot {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  /* .field__head aligns on the baseline, and an empty box baselines on its
+     bottom edge — centre the disc explicitly so the live create-preview sits
+     on the label's midline. No-op inside #btn-account, which centres already. */
+  align-self: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, .5), transparent 58%),
+    hsl(var(--hue, 152) 70% 55%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35), 0 0 9px -2px hsl(var(--hue, 152) 70% 55%);
+}
+
+/* The create-form preview rides a space-between .field__head, which would fling
+   it across the grid gap and against the neighbouring PIN label. Absorb the
+   free space on its right so it reads as part of "Player Name". */
+#account-name-dot { margin-right: auto; }
+
+.acct-name {
+  max-width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+/* styles.css wraps .topbar__inner at <=520px and derives every sticky offset
+   from --topbar-h, so this chip must never buy a wrap row (AGENTS.md §10
+   records that regression). Below 720px the name goes and the button falls
+   back to the square icon-button padding its siblings already use. */
+@media (max-width: 720px) {
+  .acct-name { display: none; }
+  #btn-account { padding: 7px; }
+}
+@media (max-width: 520px) {
+  #btn-account { padding: 5px; }
+}
+
+/* ---- Player list ---- */
+.acct-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* Written with no whitespace inside the <ul>, so :empty holds until app.js
+   renders the first row. */
+#account-list:empty::after {
+  content: 'No players yet — create one below.';
+  display: block;
+  padding: 14px 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+/* Wrapping is the safety net: the card is 640px at most but only ~340px of it
+   survives a 420px viewport, and the row must degrade rather than clip. */
+.acct-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(148, 163, 184, .05);
+  transition: background .16s var(--ease), border-color .16s var(--ease);
+}
+.acct-row:hover { background: rgba(148, 163, 184, .09); border-color: rgba(148, 163, 184, .22); }
+
+/* Active player: mint rail + tint, the same .is-active language the game tabs
+   and segmented controls already speak. */
+.acct-row.is-active {
+  border-color: rgba(0, 255, 134, .34);
+  background: rgba(0, 255, 134, .07);
+  box-shadow: inset 3px 0 0 var(--gamdom-mint);
+}
+.acct-row.is-active:hover { background: rgba(0, 255, 134, .11); }
+.acct-row.is-active .acct-row__name { color: var(--gamdom-mint); }
+
+.acct-row__dot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, .5), transparent 58%),
+    hsl(var(--hue, 152) 70% 55%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+
+.acct-row__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.acct-row__meta {
+  flex: 1 1 80px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* PIN badge — gold reads as "guarded". Never mint: this is not a win state,
+   and the PIN is not security either (see the modal's own hint). */
+.acct-row__lock {
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid rgba(251, 191, 36, .34);
+  border-radius: 99px;
+  background: rgba(251, 191, 36, .1);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+/* Row actions are bare <button>s in the markup app.js generates, so they take
+   .chip-btn's proportions here rather than growing a second button system. */
+.acct-row__go,
+.acct-row__del {
+  flex: none;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .055);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-dim);
+  transition: background .16s, border-color .16s, color .16s, transform .12s;
+}
+.acct-row__go:hover  { color: var(--gamdom-mint); background: rgba(0, 255, 134, .14); border-color: rgba(0, 255, 134, .4); }
+.acct-row__del:hover { color: var(--red-hi);      background: rgba(239, 68, 68, .14); border-color: rgba(239, 68, 68, .42); }
+.acct-row__go:active,
+.acct-row__del:active { transform: scale(.94); }
+.acct-row__go:disabled,
+.acct-row__del:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Below ~520px the card is only ~340px wide and the natural wrap strands one
+   action button on its own line, splitting Switch from Delete. Break the row
+   deliberately instead: identity + badge, then the figures, then the pair. */
+@media (max-width: 520px) {
+  .acct-row__meta { order: 1; flex: 1 1 100%; }
+  .acct-row__go,
+  .acct-row__del { order: 2; }
+}
+
+/* ---- Unlock prompt ----
+   A conditional slice of the modal body's flex column, so it carries the same
+   16px rhythm — otherwise its <hr> and <section> collapse against each other. */
+#account-unlock { display: flex; flex-direction: column; gap: 16px; }
+#account-unlock[hidden] { display: none; }
+
+/* ---- File picker ----
+   <input type="file"> has no styleable shell, so the real control is layered
+   invisibly over its own <label>. It keeps its place in the tab order and
+   still opens the OS picker, which a display:none input would not; the ring
+   moves to :focus-within because an outline on an opacity:0 box is invisible. */
+.file-pick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, .26);
+  border-radius: var(--r-sm);
+  background: rgba(10, 17, 32, .55);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background .16s, border-color .16s, color .16s, box-shadow .16s;
+}
+.file-pick:hover { color: var(--text); background: rgba(16, 185, 129, .07); border-color: rgba(16, 185, 129, .5); }
+.file-pick:focus-within { border-color: rgba(16, 185, 129, .6); box-shadow: 0 0 0 3px rgba(16, 185, 129, .14); }
+.file-pick .ico { color: var(--green); }
+.file-pick__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-pick input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ---- Save strings ----
+   .input already owns the skin; a textarea still needs block flow and a sane
+   resize axis. A save string is one unbroken run of characters, so it wraps
+   mid-token instead of pushing the card sideways. */
+#account-export-out,
+#account-import-in {
+  display: block;
+  resize: vertical;
+  min-height: 62px;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: -.01em;
+  word-break: break-all;
+}
+/* readonly, but the whole point is to select and copy it. */
+#account-export-out { color: var(--text-dim); cursor: text; user-select: text; }
+
+/* Two choices, not .segmented's default three. The thumb tracks .is-active on
+   its own — :has() is already load-bearing in styles.css (.input-group), and
+   deriving --i here means app.js only ever toggles the class, never a second
+   custom property that could drift out of sync with it. */
+#account-import-mode { --n: 2; }
+#account-import-mode:has([data-mode="overwrite"].is-active) { --i: 1; }
+
+/* ---- Status line ----
+   Empty is the resting state, so it collapses rather than leaving a gap in the
+   modal body's flex column — the same contract #custom-warn keeps. */
+#account-msg {
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(148, 163, 184, .06);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+#account-msg:empty { display: none; }
+#account-msg.is-ok  { border-color: rgba(0, 255, 134, .32); background: rgba(0, 255, 134, .09); color: var(--gamdom-mint); }
+#account-msg.is-err { border-color: rgba(239, 68, 68, .34); background: rgba(239, 68, 68, .1);  color: var(--red-hi); }
+
+/* ========================================================================
+   Design excellence pass — restrained chrome
+   ======================================================================== */
+:root { --gamdom-text-dim: #75849a; }
+
+.brand__mark {
+  filter: drop-shadow(0 2px 5px rgba(0, 255, 134, .22));
+}
+.brand:hover .brand__mark {
+  transform: none;
+  filter: drop-shadow(0 2px 7px rgba(0, 255, 134, .34));
+}
+
+.table-chip { border-radius: 5px; }
+.hchip { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+
+/* Final product-state overrides. gamdom.css loads after styles.css, so these
+   selectors intentionally reconcile the shared precision-arcade treatment at
+   the actual end of the cascade. */
+.game-tab.is-active {
+  color: #dffcef;
+  background: rgba(0, 255, 134, .12);
+  border-color: rgba(0, 255, 134, .38);
+  box-shadow: inset 0 -2px 0 var(--mint);
+}
+.game-tab:hover:not(.is-active) {
+  transform: none;
+  background: rgba(148, 163, 184, .06);
+}
+.btn--drop,
+.btn--drop:hover,
+.btn--drop:hover:not(:disabled) {
+  color: #041a13 !important;
+  background: linear-gradient(180deg, #12e899, #09c77d) !important;
+  border-color: rgba(57, 255, 175, .42) !important;
+  box-shadow: 0 12px 28px -18px rgba(0, 255, 134, .95) !important;
+  filter: none;
+}
+.btn--drop:hover:not(:disabled) { transform: translateY(-1px); }
+.btn--drop:active:not(:disabled) {
+  transform: translateY(1px) scale(.992);
+  box-shadow: 0 5px 16px -13px rgba(0, 255, 134, .9) !important;
+}

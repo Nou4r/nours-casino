@@ -13,7 +13,7 @@
 
 /* -------------------------------- Palette ------------------------------- */
 
-export const PALETTE = Object.freeze({
+const DEFAULT_PALETTE = Object.freeze({
   mint:      '#00ff86',
   green:     '#10b981',
   greenDeep: '#059669',
@@ -29,15 +29,97 @@ export const PALETTE = Object.freeze({
   bgTop:     '#070b12',
   bgBottom:  '#0d1420',
   surface:   '#0f151b',
+  rail:      '#080d15',
+  inset:     '#0b111a',
+  floating:  '#111821',
+  mineSpike: '#1b2230',
+  mineCore:  '#0d1119',
+  stageNeutral: '#ffffff',
   panel:     '#131a22',
   slate:     '#1e293b',
   slateHi:   '#334155',
+  panelTop:  'rgba(30, 41, 59, 0.72)',
+  panelBottom: 'rgba(15, 21, 27, 0.72)',
+  panelEdge: 'rgba(255,255,255,0.09)',
+  tileTop:   '#243040',
+  tileBottom:'#161e29',
+  tileHoverTop: '#2c3a4d',
+  tileHoverBottom: '#1b2431',
+  tileEdge:  'rgba(255,255,255,0.10)',
+  tileHoverEdge: 'rgba(255,255,255,0.20)',
+  cardBackTop: '#16223a',
+  cardBackBottom: '#0d1526',
+  pegTop:    '#ffffff',
+  pegMid:    '#c7d3e4',
+  pegBottom: '#7c8ba3',
+  star:      '#ffffff',
+  starAccent:'#9ffce0',
 
   text:      '#e2e8f0',
   textDim:   '#94a3b8',
   textFaint: '#64748b',
   white:     '#ffffff',
 });
+
+const OLED_PALETTE = Object.freeze({
+  ...DEFAULT_PALETTE,
+  bgTop:     '#000000',
+  bgBottom:  '#000000',
+  surface:   '#020403',
+  rail:      '#020403',
+  inset:     '#030504',
+  floating:  '#050806',
+  mineSpike: '#172019',
+  mineCore:  '#020403',
+  stageNeutral: '#dce9e2',
+  panel:     '#050806',
+  slate:     '#0b100d',
+  slateHi:   '#172019',
+  panelTop:  '#0b100d',
+  panelBottom: '#030504',
+  panelEdge: 'rgba(202,224,213,0.16)',
+  tileTop:   '#0d1410',
+  tileBottom:'#050806',
+  tileHoverTop: '#152019',
+  tileHoverBottom: '#0a100c',
+  tileEdge:  'rgba(202,224,213,0.16)',
+  tileHoverEdge: 'rgba(202,224,213,0.30)',
+  cardBackTop: '#07110c',
+  cardBackBottom: '#020403',
+  pegTop:    '#f4fbf7',
+  pegMid:    '#c3d2ca',
+  pegBottom: '#6f8177',
+  star:      '#eef8f2',
+  starAccent:'#95f5cf',
+  text:      '#e7edf5',
+  textDim:   '#aeb9c7',
+  textFaint: '#7f8c9b',
+});
+
+/**
+ * The exported object is stable so every game can retain the same import. A
+ * theme change updates its neutral surfaces and text roles in place once, not
+ * through a DOM lookup on every Canvas paint operation.
+ */
+export const PALETTE = { ...DEFAULT_PALETTE };
+let activeRenderTheme = 'default';
+
+export function isOledRenderTheme() {
+  return activeRenderTheme === 'oled';
+}
+
+export function setRenderTheme(theme = 'default') {
+  activeRenderTheme = theme === 'oled' ? 'oled' : 'default';
+  Object.assign(PALETTE, activeRenderTheme === 'oled' ? OLED_PALETTE : DEFAULT_PALETTE);
+  return activeRenderTheme;
+}
+
+if (typeof document !== 'undefined') {
+  setRenderTheme(document.documentElement?.dataset?.theme);
+  globalThis.addEventListener?.('nours:themechange', (event) => {
+    setRenderTheme(event?.detail?.theme);
+  });
+}
 
 /** Heat ramp for multiplier-coloured surfaces (low → high). */
 export const HEAT = Object.freeze([
@@ -119,7 +201,7 @@ export function createStarfield(count = 70, seed = 1) {
     r: rand() * 1.2 + 0.3,
     phase: rand() * Math.PI * 2,
     speed: 0.3 + rand() * 1.1,
-    tint: rand() > 0.86 ? '#9ffce0' : '#ffffff',
+    accent: rand() > 0.86,
   }));
 
   return {
@@ -128,7 +210,7 @@ export function createStarfield(count = 70, seed = 1) {
       ctx.save();
       for (const st of stars) {
         ctx.globalAlpha = 0.18 + 0.5 * (0.5 + 0.5 * Math.sin(t * st.speed + st.phase));
-        ctx.fillStyle = st.tint;
+        ctx.fillStyle = st.accent ? PALETTE.starAccent : PALETTE.star;
         ctx.beginPath();
         ctx.arc(st.x * w, st.y * h, st.r, 0, Math.PI * 2);
         ctx.fill();
@@ -271,9 +353,9 @@ export function peg(ctx, x, y, r, flash = 0, flashColor = PALETTE.mint) {
     body.addColorStop(0.5, flashColor);
     body.addColorStop(1, alpha(flashColor, 0.75));
   } else {
-    body.addColorStop(0, '#ffffff');
-    body.addColorStop(0.55, '#c7d3e4');
-    body.addColorStop(1, '#7c8ba3');
+    body.addColorStop(0, PALETTE.pegTop);
+    body.addColorStop(0.55, PALETTE.pegMid);
+    body.addColorStop(1, PALETTE.pegBottom);
   }
 
   ctx.shadowColor = flash > 0 ? flashColor : 'rgba(0,0,0,0.55)';
@@ -288,7 +370,7 @@ export function peg(ctx, x, y, r, flash = 0, flashColor = PALETTE.mint) {
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
   ctx.globalAlpha = 0.75;
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = PALETTE.white;
   ctx.beginPath();
   ctx.arc(x - r * 0.3, y - r * 0.35, r * 0.28, 0, Math.PI * 2);
   ctx.fill();
@@ -363,12 +445,12 @@ export function tile(ctx, x, y, w, h, opts = {}) {
   const { state = 'idle', accent = PALETTE.mint, radius = 10 } = opts;
   ctx.save();
 
-  let top = '#243040';
-  let bottom = '#161e29';
-  let edge = 'rgba(255,255,255,0.10)';
+  let top = PALETTE.tileTop;
+  let bottom = PALETTE.tileBottom;
+  let edge = PALETTE.tileEdge;
 
   if (state === 'hover') {
-    top = '#2c3a4d'; bottom = '#1b2431'; edge = 'rgba(255,255,255,0.20)';
+    top = PALETTE.tileHoverTop; bottom = PALETTE.tileHoverBottom; edge = PALETTE.tileHoverEdge;
   } else if (state === 'selected') {
     top = alpha(accent, 0.32); bottom = alpha(accent, 0.14); edge = alpha(accent, 0.75);
   } else if (state === 'revealed') {
@@ -462,8 +544,8 @@ export function card(ctx, x, y, w, h, opts = {}) {
     ctx.fillStyle = face;
   } else {
     const back = ctx.createLinearGradient(0, y, 0, y + h);
-    back.addColorStop(0, '#16223a');
-    back.addColorStop(1, '#0d1526');
+    back.addColorStop(0, PALETTE.cardBackTop);
+    back.addColorStop(1, PALETTE.cardBackBottom);
     ctx.fillStyle = back;
   }
   roundRect(ctx, x, y, w, h, radius);
@@ -616,8 +698,8 @@ export function panel(ctx, x, y, w, h, opts = {}) {
   ctx.save();
 
   const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, 'rgba(30, 41, 59, 0.72)');
-  g.addColorStop(1, 'rgba(15, 21, 27, 0.72)');
+  g.addColorStop(0, PALETTE.panelTop);
+  g.addColorStop(1, PALETTE.panelBottom);
   ctx.shadowColor = 'rgba(0,0,0,0.45)';
   ctx.shadowBlur = 18;
   ctx.shadowOffsetY = 6;
@@ -627,7 +709,7 @@ export function panel(ctx, x, y, w, h, opts = {}) {
 
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
-  ctx.strokeStyle = accent ? alpha(accent, 0.4) : 'rgba(255,255,255,0.09)';
+  ctx.strokeStyle = accent ? alpha(accent, 0.4) : PALETTE.panelEdge;
   ctx.lineWidth = 1;
   roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius);
   ctx.stroke();

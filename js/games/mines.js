@@ -1378,7 +1378,7 @@ export class MinesGame {
     ctx.globalAlpha = alphaMul;
 
     // Spikes
-    ctx.fillStyle = detonated ? '#7f1d1d' : '#1b2230';
+    ctx.fillStyle = detonated ? '#7f1d1d' : T.PALETTE.mineSpike;
     const spikes = 10;
     for (let i = 0; i < spikes; i++) {
       const a = (i / spikes) * Math.PI * 2 + Math.PI / spikes;
@@ -1396,7 +1396,7 @@ export class MinesGame {
       ctx.shadowColor = T.PALETTE.red;
       ctx.shadowBlur = r * 1.6;
     }
-    ctx.fillStyle = '#0d1119';
+    ctx.fillStyle = T.PALETTE.mineCore;
     ctx.beginPath();
     ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
     ctx.fill();

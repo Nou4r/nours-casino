@@ -18,15 +18,9 @@
 !/js
 !/assets
 
-# `fonts/` is published even though the WEB build does not currently use it:
-# index.html loads Inter + Roboto Mono from the Google Fonts CDN, and only the
-# PACKAGED native build swaps in the vendored faces (scripts/build-www.mjs strips
-# the CDN tags and links css/fonts.css when it produces www/ — see MOBILE.md).
-#
-# Kept admitted deliberately: it costs ~185 KB of edge storage and nothing at
-# runtime, and it means the moment anyone drops the CDN from index.html the site
-# keeps its typography instead of silently falling back to a system stack. The
-# failure this prevents is invisible in review and obvious to every visitor.
+# Inter and Roboto Mono are self-hosted in every target. Keeping `fonts/`
+# admitted makes the browser and native package use the same typography without
+# a third-party request or offline fallback.
 !/fonts
 
 # `_headers` deliberately stays OUT of the allow-list. Wrangler still reads it from
